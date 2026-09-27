@@ -1,13 +1,12 @@
 //! Arbitrary model APIs over one reusable HTTP client.
 
 pub mod adapter;
-pub mod event;
 pub mod http;
 pub mod json;
 
 use adapter::Adapter;
 use artist_core::context::ContextEntry;
-use event::ModelEvent;
+use artist_core::event::ModelEvent;
 use http::HttpClient;
 
 /// The portion of the conversation selected for one model request.

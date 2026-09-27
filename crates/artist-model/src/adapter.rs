@@ -1,8 +1,8 @@
 //! Provider-specific schema translation. Adapters own any streaming frame buffer.
 
 use crate::ModelInput;
-use crate::event::ModelEvent;
 use crate::http::{HeaderMap, Request, Response};
+use artist_core::event::ModelEvent;
 
 pub trait Adapter {
     type Error;
