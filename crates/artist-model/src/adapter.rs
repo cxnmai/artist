@@ -1,14 +1,14 @@
 //! Provider-specific schema translation. Adapters own any streaming frame buffer.
 
+use crate::ModelInput;
 use crate::event::ModelEvent;
 use crate::http::{HeaderMap, Request, Response};
-use serde_json::Value;
 
 pub trait Adapter {
     type Error;
 
-    /// Build the entire provider request from caller-supplied data.
-    fn request(&self, input: &Value) -> Result<Request, Self::Error>;
+    /// Translate selected history into the provider's request schema.
+    fn request(&self, input: &ModelInput<'_>) -> Result<Request, Self::Error>;
 
     /// Interpret status, headers, and JSON (or other) response bytes.
     fn response(&mut self, response: Response) -> Result<Vec<ModelEvent>, Self::Error>;

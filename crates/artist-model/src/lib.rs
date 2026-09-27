@@ -6,9 +6,15 @@ pub mod http;
 pub mod json;
 
 use adapter::Adapter;
+use artist_core::context::ContextEntry;
 use event::ModelEvent;
 use http::HttpClient;
-use serde_json::Value;
+
+/// The portion of the conversation selected for one model request.
+pub struct ModelInput<'a> {
+    pub system_prompt: &'a str,
+    pub entries: &'a [ContextEntry],
+}
 
 #[derive(Debug)]
 pub enum ModelError<E> {
@@ -29,7 +35,7 @@ impl ModelClient {
     pub async fn complete<A: Adapter>(
         &self,
         adapter: &mut A,
-        input: &Value,
+        input: &ModelInput<'_>,
     ) -> Result<Vec<ModelEvent>, ModelError<A::Error>> {
         let request = adapter.request(input).map_err(ModelError::Adapter)?;
         let response = self
@@ -44,7 +50,7 @@ impl ModelClient {
     pub async fn stream<A: Adapter>(
         &self,
         adapter: &mut A,
-        input: &Value,
+        input: &ModelInput<'_>,
         mut on_event: impl FnMut(ModelEvent),
     ) -> Result<(), ModelError<A::Error>> {
         let request = adapter.request(input).map_err(ModelError::Adapter)?;
