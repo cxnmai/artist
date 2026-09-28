@@ -7,12 +7,14 @@ pub mod json;
 use adapter::Adapter;
 use artist_core::context::{ContextEntry, Conversation, SelectedContext};
 use artist_core::event::ModelEvent;
+use artist_core::tools::ToolDefinition;
 use http::HttpClient;
 
 /// The portion of the conversation selected for one model request.
 pub struct ModelInput<'a> {
     pub system_prompt: &'a str,
     pub entries: &'a [ContextEntry],
+    pub tools: &'a [ToolDefinition],
 }
 
 impl<'a> From<&'a Conversation> for ModelInput<'a> {
@@ -20,6 +22,7 @@ impl<'a> From<&'a Conversation> for ModelInput<'a> {
         Self {
             system_prompt: &conversation.system_prompt,
             entries: &conversation.entries,
+            tools: &[],
         }
     }
 }
@@ -29,6 +32,7 @@ impl<'a> From<&'a SelectedContext> for ModelInput<'a> {
         Self {
             system_prompt: &context.system_prompt,
             entries: &context.entries,
+            tools: &[],
         }
     }
 }

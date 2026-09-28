@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 pub use reqwest::Method;
-pub use reqwest::header::HeaderMap;
+pub use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::Value;
 
 pub struct Request {
