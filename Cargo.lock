@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "artist"
+version = "0.1.0"
+dependencies = [
+ "artist-core",
+ "serde_json",
+]
+
+[[package]]
 name = "artist-core"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,8 @@
+[package]
+name = "artist"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+artist-core = { path = "../artist-core" }
+serde_json = "1"
