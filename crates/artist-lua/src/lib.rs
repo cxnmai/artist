@@ -27,7 +27,7 @@ impl Runtime {
         let registry = Rc::new(RefCell::new(Registry::default()));
         registry::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
         tools::install_native(&lua).map_err(|e| e.to_string())?;
-        lua.load(include_str!("../../../lua/default.lua"))
+        lua.load(include_str!("default.lua"))
             .set_name("artist/default.lua")
             .exec()
             .map_err(|e| e.to_string())?;
