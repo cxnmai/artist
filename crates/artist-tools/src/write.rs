@@ -1,9 +1,11 @@
 //! Create or overwrite a file with the supplied content.
 
+use serde::Deserialize;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[derive(Deserialize)]
 pub struct WriteArgs {
     pub path: PathBuf,
     pub content: String,

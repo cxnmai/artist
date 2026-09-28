@@ -1,5 +1,6 @@
 //! Text-only read tool.
 
+use serde::Deserialize;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -7,6 +8,7 @@ use std::path::{Path, PathBuf};
 const MAX_LINES: usize = 2_000;
 const MAX_BYTES: usize = 50 * 1024;
 
+#[derive(Deserialize)]
 pub struct ReadArgs {
     pub path: PathBuf,
     /// Starting line, 1-indexed.

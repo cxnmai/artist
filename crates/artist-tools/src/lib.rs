@@ -2,5 +2,6 @@
 
 pub mod bash;
 pub mod edit;
+pub mod executor;
 pub mod read;
 pub mod write;

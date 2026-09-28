@@ -24,6 +24,9 @@ dependencies = [
 name = "artist-tools"
 version = "0.1.0"
 dependencies = [
+ "artist-core",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]

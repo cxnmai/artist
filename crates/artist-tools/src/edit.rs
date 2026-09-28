@@ -1,14 +1,18 @@
 //! Exact text replacements in a single file.
 
+use serde::Deserialize;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Replacement {
     pub old_text: String,
     pub new_text: String,
 }
 
+#[derive(Deserialize)]
 pub struct EditArgs {
     pub path: PathBuf,
     pub edits: Vec<Replacement>,
