@@ -54,7 +54,7 @@ pub async fn run_turn(
     executor: &dyn ToolExecutor,
     cwd: &Path,
     max_model_calls: usize,
-    mut prepare: impl FnMut(&Conversation) -> TurnRequest,
+    mut prepare: impl FnMut(&Conversation) -> Result<TurnRequest, String>,
     mut emit: impl FnMut(AgentEvent),
 ) -> Result<(), String> {
     conversation.entries.push(ContextEntry::User {
@@ -63,7 +63,15 @@ pub async fn run_turn(
     emit(AgentEvent::User { text: prompt });
 
     for _ in 0..max_model_calls {
-        let request = prepare(conversation);
+        let request = match prepare(conversation) {
+            Ok(request) => request,
+            Err(message) => {
+                emit(AgentEvent::Error {
+                    message: message.clone(),
+                });
+                return Err(message);
+            }
+        };
         let context = conversation.select(&request.selection);
         let mut response = ResponseAccumulator::new();
         let mut response_error = None;
