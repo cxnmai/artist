@@ -1,6 +1,7 @@
 //! Built-in tool definitions and implementations for Artist.
 
 pub mod bash;
+pub mod definitions;
 pub mod edit;
 pub mod executor;
 pub mod read;
