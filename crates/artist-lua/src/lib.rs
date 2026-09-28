@@ -51,6 +51,7 @@ impl Runtime {
 
     pub async fn run(
         &self,
+        conversation: &mut Conversation,
         prompt: String,
         cwd: &Path,
         emit: impl FnMut(AgentEvent),
@@ -68,9 +69,8 @@ impl Runtime {
             lua: &self.lua,
             registry: Rc::clone(&self.registry),
         };
-        let mut conversation = Conversation::default();
         run_turn(
-            &mut conversation,
+            conversation,
             prompt,
             &mut model,
             &executor,
