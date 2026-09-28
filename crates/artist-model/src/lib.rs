@@ -5,7 +5,7 @@ pub mod http;
 pub mod json;
 
 use adapter::Adapter;
-use artist_core::context::ContextEntry;
+use artist_core::context::{ContextEntry, Conversation, SelectedContext};
 use artist_core::event::ModelEvent;
 use http::HttpClient;
 
@@ -13,6 +13,24 @@ use http::HttpClient;
 pub struct ModelInput<'a> {
     pub system_prompt: &'a str,
     pub entries: &'a [ContextEntry],
+}
+
+impl<'a> From<&'a Conversation> for ModelInput<'a> {
+    fn from(conversation: &'a Conversation) -> Self {
+        Self {
+            system_prompt: &conversation.system_prompt,
+            entries: &conversation.entries,
+        }
+    }
+}
+
+impl<'a> From<&'a SelectedContext> for ModelInput<'a> {
+    fn from(context: &'a SelectedContext) -> Self {
+        Self {
+            system_prompt: &context.system_prompt,
+            entries: &context.entries,
+        }
+    }
 }
 
 #[derive(Debug)]
