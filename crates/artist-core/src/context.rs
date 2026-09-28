@@ -14,6 +14,7 @@ pub struct Conversation {
 /// Indices refer to the original conversation, not the filtered result.
 /// None means all entries; an absent block map entry means all its blocks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ContextSelection {
     pub include_system_prompt: bool,
     pub included_entries: Option<BTreeSet<usize>>,
