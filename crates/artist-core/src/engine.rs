@@ -26,13 +26,13 @@ impl Default for TurnRequest {
 }
 
 /// The provider-specific implementation emits normalized events, not wire-format JSON.
-pub trait Model: Send {
+pub trait Model {
     fn generate<'a>(
         &'a mut self,
         context: &'a SelectedContext,
         tools: &'a [ToolDefinition],
-        emit: &'a mut (dyn FnMut(ModelEvent) + Send),
-    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+        emit: &'a mut dyn FnMut(ModelEvent),
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + 'a>>;
 }
 
 #[derive(Debug, Serialize)]
@@ -55,7 +55,7 @@ pub async fn run_turn(
     cwd: &Path,
     max_model_calls: usize,
     mut prepare: impl FnMut(&Conversation) -> TurnRequest,
-    mut emit: impl FnMut(AgentEvent) + Send,
+    mut emit: impl FnMut(AgentEvent),
 ) -> Result<(), String> {
     conversation.entries.push(ContextEntry::User {
         text: prompt.clone(),

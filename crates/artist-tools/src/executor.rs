@@ -23,7 +23,7 @@ impl ToolExecutor for BuiltinTools {
         name: &'a str,
         arguments: &'a Value,
         cwd: &'a Path,
-    ) -> Pin<Box<dyn Future<Output = ToolOutput> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = ToolOutput> + 'a>> {
         Box::pin(async move {
             match run(name, arguments, cwd).await {
                 Ok(output) => output,

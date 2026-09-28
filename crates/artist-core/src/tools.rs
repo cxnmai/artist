@@ -35,13 +35,13 @@ impl ToolOutput {
     }
 }
 
-pub trait ToolExecutor: Send + Sync {
+pub trait ToolExecutor {
     fn execute<'a>(
         &'a self,
         name: &'a str,
         arguments: &'a Value,
         cwd: &'a Path,
-    ) -> Pin<Box<dyn Future<Output = ToolOutput> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = ToolOutput> + 'a>>;
 }
 
 /// Append the assistant response, then run its tool calls in order and append each result.
