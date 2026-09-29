@@ -12,6 +12,9 @@ pub struct ChatCompletions {
     pub endpoint: String,
     pub headers: HeaderMap,
     pub options: serde_json::Map<String, Value>,
+    pub reasoning_level: Option<String>,
+    pub thinking_format: Option<String>,
+    pub requires_reasoning_content: bool,
 }
 
 impl Adapter for ChatCompletions {
@@ -39,6 +42,7 @@ impl Adapter for ChatCompletions {
                         match block {
                             AssistantBlock::Text { text: part } => text.push_str(part),
                             AssistantBlock::Thinking { text: part } => thinking.push_str(part),
+                            AssistantBlock::ProviderData { .. } => {}
                             AssistantBlock::ToolCall {
                                 id,
                                 name,
@@ -50,7 +54,7 @@ impl Adapter for ChatCompletions {
                         }
                     }
                     let mut message = json!({"role": "assistant", "content": text});
-                    if !thinking.is_empty() {
+                    if !thinking.is_empty() || self.requires_reasoning_content {
                         message["reasoning_content"] = json!(thinking);
                     }
                     if !calls.is_empty() {
@@ -69,6 +73,21 @@ impl Adapter for ChatCompletions {
         body.insert("model".into(), json!(self.name));
         body.insert("messages".into(), json!(messages));
         body.insert("stream".into(), json!(false));
+        if let Some(level) = &self.reasoning_level {
+            if self.thinking_format.as_deref() == Some("deepseek") {
+                body.insert(
+                    "thinking".into(),
+                    json!({"type": if level == "none" { "disabled" } else { "enabled" }}),
+                );
+                if level != "none" {
+                    body.insert("reasoning_effort".into(), json!(level));
+                } else {
+                    body.remove("reasoning_effort");
+                }
+            } else {
+                body.insert("reasoning_effort".into(), json!(level));
+            }
+        }
         body.remove("tools");
         if !tools.is_empty() {
             body.insert("tools".into(), json!(tools));
@@ -152,6 +171,14 @@ impl Adapter for ChatCompletions {
                 events.push(ModelEvent::Usage {
                     input_tokens,
                     output_tokens,
+                    cached_input_tokens: usage
+                        .pointer("/prompt_tokens_details/cached_tokens")
+                        .and_then(Value::as_u64),
+                    cache_write_input_tokens: None,
+                    reasoning_output_tokens: usage
+                        .pointer("/completion_tokens_details/reasoning_tokens")
+                        .and_then(Value::as_u64),
+                    cost_usd: None,
                 });
             }
         }

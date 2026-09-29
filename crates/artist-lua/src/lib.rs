@@ -2,7 +2,9 @@
 
 mod catalog;
 mod model;
+pub mod model_info;
 mod prompt;
+mod provider_config;
 mod registry;
 mod tools;
 
@@ -52,14 +54,25 @@ impl Runtime {
         self.registry.borrow().provider.is_some()
     }
 
-    pub async fn list_models(&self) -> Result<Vec<String>, String> {
+    pub async fn model_registry(&self) -> Result<(String, Vec<model_info::ModelInfo>), String> {
         let provider = self
             .registry
             .borrow()
             .provider
             .clone()
             .ok_or("no provider configured")?;
-        catalog::list(&provider).await
+        let models = catalog::list(&self.lua, &provider).await?;
+        for info in &models {
+            if let Some(adapter) = &info.adapter {
+                if !provider.adapters.contains_key(adapter) {
+                    return Err(format!(
+                        "model {} refers to unknown adapter {adapter}",
+                        info.id
+                    ));
+                }
+            }
+        }
+        Ok((provider.name, models))
     }
 
     pub fn select_model(&self, requested: Option<&str>) -> Result<String, String> {
@@ -96,6 +109,10 @@ impl Runtime {
         conversation: &mut Conversation,
         prompt: String,
         model_name: &str,
+        adapter_name: Option<&str>,
+        reasoning_level: Option<&str>,
+        thinking_format: Option<&str>,
+        requires_reasoning_content: bool,
         cwd: &Path,
         emit: impl FnMut(AgentEvent),
     ) -> Result<(), String> {
@@ -109,6 +126,10 @@ impl Runtime {
             lua: &self.lua,
             provider,
             model_name: model_name.into(),
+            adapter_name: adapter_name.map(str::to_owned),
+            reasoning_level: reasoning_level.map(str::to_owned),
+            thinking_format: thinking_format.map(str::to_owned),
+            requires_reasoning_content,
             client: self.client.clone(),
         };
         let executor = LuaTools {

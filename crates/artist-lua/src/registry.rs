@@ -1,4 +1,6 @@
+use crate::model_info::{ModelInfo, ModelMetadata};
 use crate::prompt::PromptPart;
+use crate::provider_config::parse_kind;
 use artist_core::tools::ToolDefinition;
 use mlua::{Function, Lua, LuaSerdeExt, Result, Table};
 use serde_json::Value;
@@ -10,15 +12,24 @@ pub struct RegisteredTool {
     pub execute: Function,
 }
 
+#[derive(Clone, Copy)]
+pub enum Protocol {
+    ChatCompletions,
+    OpenAIResponses,
+    AnthropicMessages,
+}
+
 #[derive(Clone)]
 pub enum ModelKind {
     Lua {
         request: Function,
         response: Function,
     },
-    ChatCompletions {
+    Http {
+        protocol: Protocol,
         endpoint: String,
         bearer_env: Option<String>,
+        api_key_env: Option<String>,
         headers: Option<Table>,
         options: serde_json::Map<String, Value>,
     },
@@ -28,15 +39,19 @@ pub enum ModelKind {
 pub struct Discovery {
     pub endpoint: String,
     pub filter: Option<Function>,
+    pub parse: Option<Function>,
 }
 
 #[derive(Clone)]
 pub struct RegisteredProvider {
     pub name: String,
     pub models: Vec<String>,
+    pub model_info: std::collections::BTreeMap<String, ModelMetadata>,
     pub default_model: Option<String>,
     pub discover: Option<Discovery>,
+    pub cost: Option<Function>,
     pub kind: ModelKind,
+    pub adapters: std::collections::BTreeMap<String, ModelKind>,
 }
 
 #[derive(Default)]
@@ -109,13 +124,42 @@ pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
                     "models must contain unique nonempty IDs",
                 ));
             }
+            let model_info = table
+                .get::<Option<mlua::Value>>("model_info")?
+                .map(|value| {
+                    lua.from_value::<std::collections::BTreeMap<String, ModelMetadata>>(value)
+                })
+                .transpose()?
+                .unwrap_or_default();
+            for (id, info) in &model_info {
+                if !models.contains(id) {
+                    return Err(mlua::Error::external(format!(
+                        "model_info key {id} must be in models"
+                    )));
+                }
+                let mut model = ModelInfo {
+                    id: id.clone(),
+                    adapter: info.adapter.clone(),
+                    context_window: info.context_window,
+                    max_output_tokens: info.max_output_tokens,
+                    reasoning_levels: info.reasoning_levels.clone(),
+                    reasoning_map: info.reasoning_map.clone(),
+                    thinking_format: info.thinking_format.clone(),
+                    requires_reasoning_content: info.requires_reasoning_content,
+                    default_reasoning: info.default_reasoning.clone(),
+                };
+                model.normalize();
+                model.validate().map_err(mlua::Error::external)?;
+            }
             let default_model: Option<String> = table.get("default_model")?;
+            let cost: Option<Function> = table.get("cost")?;
             let discover: Option<Table> = table.get("discover")?;
             let discover = discover
                 .map(|config| {
                     Ok::<_, mlua::Error>(Discovery {
                         endpoint: config.get("endpoint")?,
                         filter: config.get("filter")?,
+                        parse: config.get("parse")?,
                     })
                 })
                 .transpose()?;
@@ -129,45 +173,25 @@ pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
                     ));
                 }
             }
-            let kind = match table.get::<Option<String>>("adapter")? {
-                Some(adapter) if adapter == "chat_completions" => {
-                    if table.contains_key("request")? || table.contains_key("response")? {
-                        return Err(mlua::Error::external(
-                            "use either adapter or request/response callbacks",
-                        ));
+            let kind = parse_kind(lua, &table, None)?;
+            let mut adapters = std::collections::BTreeMap::new();
+            if let Some(configs) = table.get::<Option<Table>>("adapters")? {
+                for pair in configs.pairs::<String, Table>() {
+                    let (key, config) = pair?;
+                    if key.is_empty() {
+                        return Err(mlua::Error::external("adapter name cannot be empty"));
                     }
-                    let auth: Option<Table> = table.get("auth")?;
-                    let bearer_env = auth
-                        .as_ref()
-                        .map(|auth| auth.get::<String>("bearer_env"))
-                        .transpose()?;
-                    let options = match table.get::<Option<mlua::Value>>("options")? {
-                        Some(value) => lua.from_value::<serde_json::Map<String, Value>>(value)?,
-                        None => serde_json::Map::new(),
-                    };
-                    ModelKind::ChatCompletions {
-                        endpoint: table
-                            .get::<Option<String>>("endpoint")?
-                            .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".into()),
-                        bearer_env,
-                        headers: table.get("headers")?,
-                        options,
+                    adapters.insert(key, parse_kind(lua, &config, Some(&table))?);
+                }
+            }
+            for (id, info) in &model_info {
+                if let Some(adapter) = &info.adapter {
+                    if !adapters.contains_key(adapter) {
+                        return Err(mlua::Error::external(format!(
+                            "model {id} refers to unknown adapter {adapter}"
+                        )));
                     }
                 }
-                Some(adapter) => {
-                    return Err(mlua::Error::external(format!(
-                        "unknown model adapter: {adapter}"
-                    )));
-                }
-                None => ModelKind::Lua {
-                    request: table.get("request")?,
-                    response: table.get("response")?,
-                },
-            };
-            if discover.is_some() && !matches!(kind, ModelKind::ChatCompletions { .. }) {
-                return Err(mlua::Error::external(
-                    "discovery currently requires chat_completions",
-                ));
             }
             let mut registry = providers.borrow_mut();
             if registry.provider.is_some() {
@@ -176,9 +200,12 @@ pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
             registry.provider = Some(RegisteredProvider {
                 name,
                 models,
+                model_info,
                 default_model,
                 discover,
+                cost,
                 kind,
+                adapters,
             });
             Ok(())
         })?,

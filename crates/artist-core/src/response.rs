@@ -32,6 +32,10 @@ impl std::error::Error for ResponseError {}
 enum PendingBlock {
     Text(String),
     Thinking(String),
+    ProviderData {
+        provider: String,
+        data: Value,
+    },
     ToolCall {
         id: String,
         name: String,
@@ -65,6 +69,10 @@ impl ResponseAccumulator {
                 Some(PendingBlock::Thinking(previous)) => previous.push_str(&text),
                 _ => self.blocks.push(PendingBlock::Thinking(text)),
             },
+            ModelEvent::ProviderData { provider, data } => {
+                self.blocks
+                    .push(PendingBlock::ProviderData { provider, data });
+            }
             ModelEvent::ToolCallStart { id, name } => {
                 if self.blocks.iter().any(|block| matches!(block, PendingBlock::ToolCall { id: existing, .. } if *existing == id)) {
                     return Err(ResponseError::DuplicateCall(id));
@@ -93,6 +101,7 @@ impl ResponseAccumulator {
             ModelEvent::Usage {
                 input_tokens,
                 output_tokens,
+                ..
             } => {
                 self.usage = Some((input_tokens, output_tokens));
             }
@@ -123,6 +132,9 @@ impl ResponseAccumulator {
             blocks.push(match block {
                 PendingBlock::Text(text) => AssistantBlock::Text { text },
                 PendingBlock::Thinking(text) => AssistantBlock::Thinking { text },
+                PendingBlock::ProviderData { provider, data } => {
+                    AssistantBlock::ProviderData { provider, data }
+                }
                 PendingBlock::ToolCall {
                     id,
                     name,

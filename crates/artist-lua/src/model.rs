@@ -1,11 +1,13 @@
-use crate::registry::{ModelKind, RegisteredProvider};
+use crate::registry::{ModelKind, Protocol, RegisteredProvider};
 use artist_core::context::SelectedContext;
 use artist_core::engine::Model;
 use artist_core::event::ModelEvent;
 use artist_core::tools::ToolDefinition;
 use artist_model::ModelInput;
 use artist_model::adapter::Adapter;
+use artist_model::adapters::anthropic_messages::AnthropicMessages;
 use artist_model::adapters::chat_completions::{ChatCompletions, bearer_header};
+use artist_model::adapters::openai_responses::OpenAIResponses;
 use artist_model::http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response};
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use serde::Deserialize;
@@ -31,6 +33,7 @@ struct LuaAdapter<'a> {
     request: &'a mlua::Function,
     response: &'a mlua::Function,
     model_name: &'a str,
+    reasoning_level: Option<&'a str>,
 }
 
 impl Adapter for LuaAdapter<'_> {
@@ -47,7 +50,7 @@ impl Adapter for LuaAdapter<'_> {
         let tools = self.lua.to_value(input.tools).map_err(|e| e.to_string())?;
         let value: LuaValue = self
             .request
-            .call((context, tools, self.model_name))
+            .call((context, tools, self.model_name, self.reasoning_level))
             .map_err(|e| e.to_string())?;
         let spec: RequestSpec = self
             .lua
@@ -125,8 +128,9 @@ async fn complete<A: Adapter<Error = String>>(
 }
 
 pub fn provider_headers(kind: &ModelKind) -> Result<HeaderMap, String> {
-    let ModelKind::ChatCompletions {
+    let ModelKind::Http {
         bearer_env,
+        api_key_env,
         headers,
         ..
     } = kind
@@ -140,6 +144,14 @@ pub fn provider_headers(kind: &ModelKind) -> Result<HeaderMap, String> {
         header_map.insert(
             HeaderName::from_static("authorization"),
             bearer_header(&token)?,
+        );
+    }
+    if let Some(env_name) = api_key_env {
+        let token = std::env::var(env_name)
+            .map_err(|_| format!("environment variable {env_name} is not set"))?;
+        header_map.insert(
+            HeaderName::from_static("x-api-key"),
+            HeaderValue::from_str(&token).map_err(|e| e.to_string())?,
         );
     }
     if let Some(headers) = headers {
@@ -163,6 +175,10 @@ pub struct LuaModel<'a> {
     pub lua: &'a Lua,
     pub provider: RegisteredProvider,
     pub model_name: String,
+    pub adapter_name: Option<String>,
+    pub reasoning_level: Option<String>,
+    pub thinking_format: Option<String>,
+    pub requires_reasoning_content: bool,
     pub client: artist_model::ModelClient,
 }
 
@@ -179,28 +195,125 @@ impl Model for LuaModel<'_> {
                 entries: &context.entries,
                 tools,
             };
-            let events = match &self.provider.kind {
+            let kind = self
+                .adapter_name
+                .as_ref()
+                .map(|name| {
+                    self.provider
+                        .adapters
+                        .get(name)
+                        .ok_or_else(|| format!("unknown adapter {name}"))
+                })
+                .transpose()?
+                .unwrap_or(&self.provider.kind);
+            let mut events = match kind {
                 ModelKind::Lua { request, response } => {
                     let mut adapter = LuaAdapter {
                         lua: self.lua,
                         request,
                         response,
                         model_name: &self.model_name,
+                        reasoning_level: self.reasoning_level.as_deref(),
                     };
                     complete(&self.client, &mut adapter, &input).await?
                 }
-                ModelKind::ChatCompletions {
-                    endpoint, options, ..
+                ModelKind::Http {
+                    protocol,
+                    endpoint,
+                    options,
+                    ..
                 } => {
-                    let mut adapter = ChatCompletions {
-                        name: self.model_name.clone(),
-                        endpoint: endpoint.clone(),
-                        headers: provider_headers(&self.provider.kind)?,
-                        options: options.clone(),
-                    };
-                    complete(&self.client, &mut adapter, &input).await?
+                    let headers = provider_headers(kind)?;
+                    match protocol {
+                        Protocol::ChatCompletions => {
+                            complete(
+                                &self.client,
+                                &mut ChatCompletions {
+                                    name: self.model_name.clone(),
+                                    endpoint: endpoint.clone(),
+                                    headers,
+                                    options: options.clone(),
+                                    reasoning_level: self.reasoning_level.clone(),
+                                    thinking_format: self.thinking_format.clone(),
+                                    requires_reasoning_content: self.requires_reasoning_content,
+                                },
+                                &input,
+                            )
+                            .await?
+                        }
+                        Protocol::OpenAIResponses => {
+                            complete(
+                                &self.client,
+                                &mut OpenAIResponses {
+                                    name: self.model_name.clone(),
+                                    endpoint: endpoint.clone(),
+                                    headers,
+                                    options: options.clone(),
+                                    reasoning_level: self.reasoning_level.clone(),
+                                },
+                                &input,
+                            )
+                            .await?
+                        }
+                        Protocol::AnthropicMessages => {
+                            complete(
+                                &self.client,
+                                &mut AnthropicMessages {
+                                    name: self.model_name.clone(),
+                                    endpoint: endpoint.clone(),
+                                    headers,
+                                    options: options.clone(),
+                                    reasoning_level: self.reasoning_level.clone(),
+                                },
+                                &input,
+                            )
+                            .await?
+                        }
+                    }
                 }
             };
+            if let Some(cost) = &self.provider.cost {
+                for event in &mut events {
+                    if let ModelEvent::Usage {
+                        input_tokens,
+                        output_tokens,
+                        cached_input_tokens,
+                        cache_write_input_tokens,
+                        reasoning_output_tokens,
+                        cost_usd,
+                    } = event
+                    {
+                        if cost_usd.is_some() {
+                            continue;
+                        }
+                        let usage = self.lua.create_table().map_err(|e| e.to_string())?;
+                        usage
+                            .set("input_tokens", *input_tokens)
+                            .map_err(|e| e.to_string())?;
+                        usage
+                            .set("output_tokens", *output_tokens)
+                            .map_err(|e| e.to_string())?;
+                        usage
+                            .set("cached_input_tokens", *cached_input_tokens)
+                            .map_err(|e| e.to_string())?;
+                        usage
+                            .set("cache_write_input_tokens", *cache_write_input_tokens)
+                            .map_err(|e| e.to_string())?;
+                        usage
+                            .set("reasoning_output_tokens", *reasoning_output_tokens)
+                            .map_err(|e| e.to_string())?;
+                        let value: Option<f64> = cost
+                            .call((self.model_name.as_str(), usage))
+                            .map_err(|e| format!("cost calculation: {e}"))?;
+                        if let Some(value) = value {
+                            if !value.is_finite() || value < 0.0 {
+                                return Err("cost calculation must return a nonnegative finite USD amount or nil".into());
+                            }
+                            *cost_usd = Some(value);
+                        }
+                    }
+                }
+            }
             for event in events {
                 emit(event);
             }

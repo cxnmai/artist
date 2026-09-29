@@ -38,11 +38,33 @@ pub trait Model {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
-    User { text: String },
-    Model { event: ModelEvent },
-    Assistant { entry: ContextEntry },
-    ToolResult { entry: ContextEntry },
-    Error { message: String },
+    ModelInfo {
+        provider: String,
+        model: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context_window: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_output_tokens: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reasoning_levels: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reasoning_level: Option<String>,
+    },
+    User {
+        text: String,
+    },
+    Model {
+        event: ModelEvent,
+    },
+    Assistant {
+        entry: ContextEntry,
+    },
+    ToolResult {
+        entry: ContextEntry,
+    },
+    Error {
+        message: String,
+    },
     Done,
 }
 

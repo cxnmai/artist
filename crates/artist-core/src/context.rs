@@ -112,4 +112,9 @@ pub enum AssistantBlock {
         name: String,
         arguments: Value,
     },
+    /// Provider-owned response item, replayed unchanged by that provider.
+    ProviderData {
+        provider: String,
+        data: Value,
+    },
 }
