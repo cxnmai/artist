@@ -1,5 +1,6 @@
 //! One user turn, independent of model providers and tool implementations.
 
+use crate::cancellation::CancellationToken;
 use crate::context::{
     AssistantBlock, ContextEntry, ContextSelection, Conversation, SelectedContext,
 };
@@ -69,7 +70,14 @@ pub enum AgentEvent {
     Error {
         message: String,
     },
+    Cancelled,
     Done,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnOutcome {
+    Completed,
+    Cancelled,
 }
 
 /// Calls `prepare` before *each* model request; it can select history and tools anew.
@@ -81,9 +89,10 @@ pub async fn run_turn(
     cwd: &Path,
     max_model_calls: usize,
     context_window: Option<u64>,
+    cancellation: &CancellationToken,
     mut prepare: impl FnMut(&Conversation) -> Result<TurnRequest, String>,
     mut emit: impl FnMut(Vec<AgentEvent>),
-) -> Result<(), String> {
+) -> Result<TurnOutcome, String> {
     conversation.entries.push(ContextEntry::User {
         text: prompt.clone(),
     });
@@ -93,6 +102,10 @@ pub async fn run_turn(
     }
 
     for _ in 0..max_model_calls {
+        if cancellation.is_cancelled() {
+            emit(vec![AgentEvent::Cancelled]);
+            return Ok(TurnOutcome::Cancelled);
+        }
         let request = match prepare(conversation) {
             Ok(request) => request,
             Err(message) => {
@@ -102,6 +115,10 @@ pub async fn run_turn(
                 return Err(message);
             }
         };
+        if cancellation.is_cancelled() {
+            emit(vec![AgentEvent::Cancelled]);
+            return Ok(TurnOutcome::Cancelled);
+        }
         let context = conversation.select(&request.selection);
         let mut response = ResponseAccumulator::new();
         let mut response_error = None;
@@ -121,10 +138,16 @@ pub async fn run_turn(
                 emit(batch);
             }
         };
-        if let Err(error) = model
-            .generate(&context, &request.tools, &mut on_model_events)
-            .await
-        {
+        let generation = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => None,
+            result = model.generate(&context, &request.tools, &mut on_model_events) => Some(result),
+        };
+        if generation.is_none() || cancellation.is_cancelled() {
+            emit(vec![AgentEvent::Cancelled]);
+            return Ok(TurnOutcome::Cancelled);
+        }
+        if let Err(error) = generation.expect("generation completed") {
             emit(vec![AgentEvent::Error {
                 message: error.clone(),
             }]);
@@ -147,16 +170,27 @@ pub async fn run_turn(
                 return Err(message);
             }
         };
+        if cancellation.is_cancelled() {
+            emit(vec![AgentEvent::Cancelled]);
+            return Ok(TurnOutcome::Cancelled);
+        }
         let has_calls = matches!(&assistant, ContextEntry::Assistant { blocks } if blocks.iter().any(|block| matches!(block, AssistantBlock::ToolCall { .. })));
         emit(vec![AgentEvent::Assistant {
             entry: assistant.clone(),
         }]);
         let assistant_index = conversation.entries.len();
-        record_assistant(conversation, assistant, executor, cwd, &mut |entry| {
-            emit(vec![AgentEvent::ToolResult {
-                entry: entry.clone(),
-            }]);
-        })
+        let interrupted = record_assistant(
+            conversation,
+            assistant,
+            executor,
+            cwd,
+            cancellation,
+            &mut |entry| {
+                emit(vec![AgentEvent::ToolResult {
+                    entry: entry.clone(),
+                }]);
+            },
+        )
         .await
         .expect("response accumulator produced an assistant entry");
         if let Some((input, output, total)) = usage {
@@ -170,9 +204,13 @@ pub async fn run_turn(
         if let Some(usage) = context_window.and_then(|window| conversation.context_usage(window)) {
             emit(vec![AgentEvent::ContextUsage { usage }]);
         }
+        if interrupted || cancellation.is_cancelled() {
+            emit(vec![AgentEvent::Cancelled]);
+            return Ok(TurnOutcome::Cancelled);
+        }
         if !has_calls {
             emit(vec![AgentEvent::Done]);
-            return Ok(());
+            return Ok(TurnOutcome::Completed);
         }
     }
     let message = "model call limit reached".to_owned();

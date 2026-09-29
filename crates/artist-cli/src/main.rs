@@ -1,5 +1,6 @@
+use artist_core::cancellation::CancellationToken;
 use artist_core::context::Conversation;
-use artist_core::engine::AgentEvent;
+use artist_core::engine::{AgentEvent, TurnOutcome};
 use artist_lua::Runtime;
 use std::env;
 use std::io::{self, Write};
@@ -153,7 +154,18 @@ async fn main() -> ExitCode {
         reasoning_level: level.clone(),
     });
     for prompt in prompts {
-        if runtime
+        let cancellation = CancellationToken::new();
+        let signal = cancellation.clone();
+        let interrupt = tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                signal.cancel();
+                // A second interrupt is a hard stop if a tool cannot be interrupted cooperatively.
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    std::process::exit(130);
+                }
+            }
+        });
+        let outcome = runtime
             .run(
                 &mut conversation,
                 prompt,
@@ -164,12 +176,15 @@ async fn main() -> ExitCode {
                 info.requires_reasoning_content.unwrap_or(false),
                 info.context_window,
                 &cwd,
+                &cancellation,
                 emit_batch,
             )
-            .await
-            .is_err()
-        {
-            return ExitCode::FAILURE; // run_turn emitted the error event
+            .await;
+        interrupt.abort();
+        match outcome {
+            Ok(TurnOutcome::Completed) => {}
+            Ok(TurnOutcome::Cancelled) => return ExitCode::from(130),
+            Err(_) => return ExitCode::FAILURE, // run_turn emitted the error event
         }
     }
     ExitCode::SUCCESS

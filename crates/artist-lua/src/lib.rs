@@ -8,8 +8,9 @@ mod provider_config;
 mod registry;
 mod tools;
 
+use artist_core::cancellation::CancellationToken;
 use artist_core::context::{ContextSelection, Conversation};
-use artist_core::engine::{AgentEvent, TurnRequest, run_turn};
+use artist_core::engine::{AgentEvent, TurnOutcome, TurnRequest, run_turn};
 use artist_model::ModelClient;
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use model::LuaModel;
@@ -115,8 +116,9 @@ impl Runtime {
         requires_reasoning_content: bool,
         context_window: Option<u64>,
         cwd: &Path,
+        cancellation: &CancellationToken,
         emit: impl FnMut(Vec<AgentEvent>),
-    ) -> Result<(), String> {
+    ) -> Result<TurnOutcome, String> {
         let provider = self
             .registry
             .borrow()
@@ -145,6 +147,7 @@ impl Runtime {
             cwd,
             20,
             context_window,
+            cancellation,
             |history| {
                 let registry = self.registry.borrow();
                 let selection = if let Some(selector) = &registry.selector {

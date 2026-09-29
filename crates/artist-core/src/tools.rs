@@ -1,5 +1,6 @@
 //! Tool execution is an interface so native and future Lua tools use the same path.
 
+use crate::cancellation::CancellationToken;
 use crate::context::{AssistantBlock, ContextEntry, Conversation};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -50,8 +51,9 @@ pub async fn record_assistant(
     assistant: ContextEntry,
     executor: &dyn ToolExecutor,
     cwd: &Path,
+    cancellation: &CancellationToken,
     on_result: &mut dyn FnMut(&ContextEntry),
-) -> Result<(), &'static str> {
+) -> Result<bool, &'static str> {
     let ContextEntry::Assistant { blocks } = assistant else {
         return Err("expected an assistant entry");
     };
@@ -73,8 +75,20 @@ pub async fn record_assistant(
     conversation
         .entries
         .push(ContextEntry::Assistant { blocks });
+    let mut cancelled = false;
     for (tool_call_id, name, arguments) in calls {
-        let output = executor.execute(&name, &arguments, cwd).await;
+        let output = if cancelled {
+            ToolOutput::error("tool not run: turn cancelled")
+        } else {
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => {
+                    cancelled = true;
+                    ToolOutput::error("tool interrupted by cancellation; side effects may have occurred")
+                }
+                output = executor.execute(&name, &arguments, cwd) => output,
+            }
+        };
         let result = ContextEntry::ToolResult {
             tool_call_id,
             text: output.text,
@@ -83,5 +97,5 @@ pub async fn record_assistant(
         on_result(&result);
         conversation.entries.push(result);
     }
-    Ok(())
+    Ok(cancelled || cancellation.is_cancelled())
 }
