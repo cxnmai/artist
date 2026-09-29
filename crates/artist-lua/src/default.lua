@@ -1,7 +1,6 @@
 artist.set_system_prompt(function(context)
   return "You are the language model " .. context.model_name
-    .. " operating inside of the agentic harness 'Artist.' The working directory is "
-    .. context.cwd .. "."
+    .. " operating inside of the agentic harness 'Artist.'"
 end)
 
 -- Built-ins use the same registration and execution path as user tools.

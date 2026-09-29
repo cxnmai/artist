@@ -3,7 +3,7 @@ local session_id = string.format("artist-%d-%08x", os.time(), math.random(0, 0xf
 
 -- To replace Artist's default system prompt, uncomment:
 -- artist.set_system_prompt(function(ctx)
---   return "You are " .. ctx.model_name .. ", a coding assistant working in " .. ctx.cwd .. "."
+--   return "You are " .. ctx.model_name .. ", a coding assistant in Artist."
 -- end)
 
 artist.model({
