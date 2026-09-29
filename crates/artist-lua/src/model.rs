@@ -277,6 +277,7 @@ impl Model for LuaModel<'_> {
                     if let ModelEvent::Usage {
                         input_tokens,
                         output_tokens,
+                        total_tokens,
                         cached_input_tokens,
                         cache_write_input_tokens,
                         reasoning_output_tokens,
@@ -292,6 +293,9 @@ impl Model for LuaModel<'_> {
                             .map_err(|e| e.to_string())?;
                         usage
                             .set("output_tokens", *output_tokens)
+                            .map_err(|e| e.to_string())?;
+                        usage
+                            .set("total_tokens", *total_tokens)
                             .map_err(|e| e.to_string())?;
                         usage
                             .set("cached_input_tokens", *cached_input_tokens)

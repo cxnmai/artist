@@ -192,6 +192,7 @@ impl Adapter for AnthropicMessages {
                 events.push(ModelEvent::Usage {
                     input_tokens,
                     output_tokens,
+                    total_tokens: None,
                     cached_input_tokens: cached,
                     cache_write_input_tokens: created,
                     reasoning_output_tokens: None,

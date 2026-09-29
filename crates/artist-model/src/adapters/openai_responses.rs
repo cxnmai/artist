@@ -199,6 +199,7 @@ impl Adapter for OpenAIResponses {
                 events.push(ModelEvent::Usage {
                     input_tokens,
                     output_tokens,
+                    total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
                     cached_input_tokens: usage
                         .pointer("/input_tokens_details/cached_tokens")
                         .and_then(Value::as_u64),

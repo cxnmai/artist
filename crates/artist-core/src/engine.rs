@@ -3,6 +3,7 @@
 use crate::context::{
     AssistantBlock, ContextEntry, ContextSelection, Conversation, SelectedContext,
 };
+use crate::context_usage::{ContextUsage, UsageAnchor};
 use crate::event::ModelEvent;
 use crate::response::ResponseAccumulator;
 use crate::tools::{ToolDefinition, ToolExecutor, record_assistant};
@@ -38,6 +39,9 @@ pub trait Model {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
+    ContextUsage {
+        usage: ContextUsage,
+    },
     ModelInfo {
         provider: String,
         model: String,
@@ -76,6 +80,7 @@ pub async fn run_turn(
     executor: &dyn ToolExecutor,
     cwd: &Path,
     max_model_calls: usize,
+    context_window: Option<u64>,
     mut prepare: impl FnMut(&Conversation) -> Result<TurnRequest, String>,
     mut emit: impl FnMut(AgentEvent),
 ) -> Result<(), String> {
@@ -83,6 +88,9 @@ pub async fn run_turn(
         text: prompt.clone(),
     });
     emit(AgentEvent::User { text: prompt });
+    if let Some(usage) = context_window.and_then(|window| conversation.context_usage(window)) {
+        emit(AgentEvent::ContextUsage { usage });
+    }
 
     for _ in 0..max_model_calls {
         let request = match prepare(conversation) {
@@ -120,6 +128,7 @@ pub async fn run_turn(
             });
             return Err(error);
         }
+        let usage = response.usage;
         let assistant = match response.finish() {
             Ok(entry) => entry,
             Err(error) => {
@@ -134,6 +143,7 @@ pub async fn run_turn(
         emit(AgentEvent::Assistant {
             entry: assistant.clone(),
         });
+        let assistant_index = conversation.entries.len();
         record_assistant(conversation, assistant, executor, cwd, &mut |entry| {
             emit(AgentEvent::ToolResult {
                 entry: entry.clone(),
@@ -141,6 +151,17 @@ pub async fn run_turn(
         })
         .await
         .expect("response accumulator produced an assistant entry");
+        if let Some((input, output, total)) = usage {
+            conversation.last_usage = Some(UsageAnchor {
+                entry_index: assistant_index,
+                tokens: total
+                    .filter(|tokens| *tokens > 0)
+                    .unwrap_or_else(|| input.saturating_add(output)),
+            });
+        }
+        if let Some(usage) = context_window.and_then(|window| conversation.context_usage(window)) {
+            emit(AgentEvent::ContextUsage { usage });
+        }
         if !has_calls {
             emit(AgentEvent::Done);
             return Ok(());

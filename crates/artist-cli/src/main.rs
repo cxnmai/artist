@@ -161,6 +161,7 @@ async fn main() -> ExitCode {
                 mapped_level,
                 info.thinking_format.as_deref(),
                 info.requires_reasoning_content.unwrap_or(false),
+                info.context_window,
                 &cwd,
                 emit,
             )

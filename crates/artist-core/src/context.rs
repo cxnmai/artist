@@ -1,5 +1,6 @@
 //! Provider-independent conversation history.
 
+use crate::context_usage::UsageAnchor;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -9,6 +10,8 @@ pub struct Conversation {
     /// Empty unless configured by the caller.
     pub system_prompt: String,
     pub entries: Vec<ContextEntry>,
+    #[serde(default)]
+    pub last_usage: Option<UsageAnchor>,
 }
 
 /// Indices refer to the original conversation, not the filtered result.

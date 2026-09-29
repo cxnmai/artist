@@ -48,7 +48,7 @@ enum PendingBlock {
 pub struct ResponseAccumulator {
     blocks: Vec<PendingBlock>,
     finished: bool,
-    pub usage: Option<(u64, u64)>,
+    pub usage: Option<(u64, u64, Option<u64>)>,
 }
 
 impl ResponseAccumulator {
@@ -101,9 +101,10 @@ impl ResponseAccumulator {
             ModelEvent::Usage {
                 input_tokens,
                 output_tokens,
+                total_tokens,
                 ..
             } => {
-                self.usage = Some((input_tokens, output_tokens));
+                self.usage = Some((input_tokens, output_tokens, total_tokens));
             }
             ModelEvent::Finished { .. } => self.finished = true,
         }

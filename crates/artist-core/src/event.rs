@@ -31,6 +31,8 @@ pub enum ModelEvent {
         input_tokens: u64,
         output_tokens: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         cached_input_tokens: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cache_write_input_tokens: Option<u64>,

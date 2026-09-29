@@ -113,6 +113,7 @@ impl Runtime {
         reasoning_level: Option<&str>,
         thinking_format: Option<&str>,
         requires_reasoning_content: bool,
+        context_window: Option<u64>,
         cwd: &Path,
         emit: impl FnMut(AgentEvent),
     ) -> Result<(), String> {
@@ -143,6 +144,7 @@ impl Runtime {
             &executor,
             cwd,
             20,
+            context_window,
             |history| {
                 let registry = self.registry.borrow();
                 let selection = if let Some(selector) = &registry.selector {
