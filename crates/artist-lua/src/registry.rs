@@ -1,3 +1,4 @@
+use crate::prompt::PromptPart;
 use artist_core::tools::ToolDefinition;
 use mlua::{Function, Lua, LuaSerdeExt, Result, Table};
 use std::cell::RefCell;
@@ -10,6 +11,7 @@ pub struct RegisteredTool {
 
 #[derive(Clone)]
 pub struct ModelCallbacks {
+    pub name: String,
     pub request: Function,
     pub response: Function,
 }
@@ -19,6 +21,8 @@ pub struct Registry {
     pub tools: Vec<RegisteredTool>,
     pub model: Option<ModelCallbacks>,
     pub selector: Option<Function>,
+    pub system_prompt: Option<PromptPart>,
+    pub prompt_appends: Vec<PromptPart>,
 }
 
 pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
@@ -54,6 +58,7 @@ pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
         "model",
         lua.create_function(move |_, table: Table| {
             models.borrow_mut().model = Some(ModelCallbacks {
+                name: table.get("name")?,
                 request: table.get("request")?,
                 response: table.get("response")?,
             });

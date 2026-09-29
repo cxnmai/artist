@@ -3,6 +3,7 @@ local api_key = os.getenv("OPENCODE_GO_API_KEY") or "REPLACE_WITH_OPENCODE_GO_AP
 local session_id = string.format("artist-%d-%08x", os.time(), math.random(0, 0xffffffff))
 
 artist.model({
+  name = "deepseek-v4-pro",
   request = function(context, tools)
     if api_key == "REPLACE_WITH_OPENCODE_GO_API_KEY" then
       error("Set OPENCODE_GO_API_KEY or replace the placeholder in configs/opencode-go.lua")

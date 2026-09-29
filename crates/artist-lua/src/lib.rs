@@ -1,6 +1,7 @@
 //! Embedded Lua policy and the bridges into Artist's Rust interfaces.
 
 mod model;
+mod prompt;
 mod registry;
 mod tools;
 
@@ -26,6 +27,7 @@ impl Runtime {
         let lua = Lua::new();
         let registry = Rc::new(RefCell::new(Registry::default()));
         registry::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
+        prompt::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
         tools::install_native(&lua).map_err(|e| e.to_string())?;
         lua.load(include_str!("default.lua"))
             .set_name("artist/default.lua")
@@ -47,6 +49,16 @@ impl Runtime {
 
     pub fn has_model(&self) -> bool {
         self.registry.borrow().model.is_some()
+    }
+
+    pub fn configure_conversation(
+        &self,
+        conversation: &mut Conversation,
+        cwd: &Path,
+    ) -> Result<(), String> {
+        conversation.system_prompt =
+            prompt::build(&self.lua, &self.registry, cwd).map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub async fn run(

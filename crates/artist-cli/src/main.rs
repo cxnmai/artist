@@ -67,6 +67,10 @@ async fn main() -> ExitCode {
     }
     let cwd = env::current_dir().expect("current directory exists");
     let mut conversation = Conversation::default();
+    if let Err(message) = runtime.configure_conversation(&mut conversation, &cwd) {
+        emit(AgentEvent::Error { message });
+        return ExitCode::FAILURE;
+    }
     for prompt in prompts {
         if runtime
             .run(&mut conversation, prompt, &cwd, emit)

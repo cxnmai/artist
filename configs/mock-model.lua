@@ -1,5 +1,6 @@
 -- Minimal adapter for dev/mock-model/server.py (buffered Chat Completions).
 artist.model({
+  name = "artist-mock",
   request = function(context, tools)
     local messages = {}
     if context.system_prompt ~= "" then
