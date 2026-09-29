@@ -66,11 +66,16 @@ artist.provider({
   model_info = model_info,
   default_model = "deepseek-v4-pro",
   adapter = "chat_completions",
+  stream = true,
   adapters = {
-    responses = { adapter = "openai_responses", endpoint = "https://opencode.ai/zen/go/v1/responses" },
+    responses = {
+      adapter = "openai_responses", endpoint = "https://opencode.ai/zen/go/v1/responses",
+      stream = true,
+    },
     messages = {
       adapter = "anthropic_messages", endpoint = "https://opencode.ai/zen/go/v1/messages",
       auth = { api_key_env = "OPENCODE_GO_API_KEY" },
+      stream = true,
     },
   },
   endpoint = "https://opencode.ai/zen/go/v1/chat/completions",

@@ -1,12 +1,30 @@
 //! Buffered OpenAI-style Chat Completions protocol. Endpoint/auth are supplied by the caller.
 
+use super::sse::Sse;
 use crate::ModelInput;
 use crate::adapter::Adapter;
 use crate::http::{HeaderMap, HeaderValue, Method, Request, Response};
 use artist_core::context::{AssistantBlock, ContextEntry};
 use artist_core::event::ModelEvent;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
+#[derive(Default)]
+pub(crate) struct ChatStream {
+    done: bool,
+    calls: BTreeMap<u64, StreamCall>,
+    reason: Option<String>,
+    usage: Option<ModelEvent>,
+}
+
+#[derive(Default)]
+struct StreamCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+#[derive(Default)]
 pub struct ChatCompletions {
     pub name: String,
     pub endpoint: String,
@@ -15,6 +33,9 @@ pub struct ChatCompletions {
     pub reasoning_level: Option<String>,
     pub thinking_format: Option<String>,
     pub requires_reasoning_content: bool,
+    pub stream: bool,
+    pub(crate) sse: Sse,
+    pub(crate) stream_state: ChatStream,
 }
 
 impl Adapter for ChatCompletions {
@@ -72,7 +93,10 @@ impl Adapter for ChatCompletions {
         let mut body = self.options.clone();
         body.insert("model".into(), json!(self.name));
         body.insert("messages".into(), json!(messages));
-        body.insert("stream".into(), json!(false));
+        body.insert("stream".into(), json!(self.stream));
+        if self.stream {
+            body.insert("stream_options".into(), json!({"include_usage": true}));
+        }
         if let Some(level) = &self.reasoning_level {
             if self.thinking_format.as_deref() == Some("deepseek") {
                 body.insert(
@@ -192,8 +216,121 @@ impl Adapter for ChatCompletions {
         Ok(events)
     }
 
-    fn stream_chunk(&mut self, _: &[u8]) -> Result<Vec<ModelEvent>, String> {
-        Err("chat completions streaming is not configured".into())
+    fn stream_start(&mut self, status: u16, _: &HeaderMap) -> Result<Vec<ModelEvent>, String> {
+        if !(200..300).contains(&status) {
+            return Err(format!("Chat Completions HTTP {status}"));
+        }
+        Ok(Vec::new())
+    }
+
+    fn stream_chunk(&mut self, chunk: &[u8]) -> Result<Vec<ModelEvent>, String> {
+        let mut events = Vec::new();
+        for (_, frame) in self.sse.push(chunk)? {
+            if frame.is_null() {
+                self.stream_state.done = true;
+                continue;
+            }
+            if let Some(error) = frame.get("error") {
+                return Err(format!("Chat Completions stream error: {error}"));
+            }
+            if let Some(usage) = frame.get("usage").filter(|v| !v.is_null()) {
+                if let (Some(input_tokens), Some(output_tokens)) = (
+                    usage.get("prompt_tokens").and_then(Value::as_u64),
+                    usage.get("completion_tokens").and_then(Value::as_u64),
+                ) {
+                    self.stream_state.usage = Some(ModelEvent::Usage {
+                        input_tokens,
+                        output_tokens,
+                        total_tokens: usage.get("total_tokens").and_then(Value::as_u64),
+                        cached_input_tokens: usage
+                            .pointer("/prompt_tokens_details/cached_tokens")
+                            .and_then(Value::as_u64),
+                        cache_write_input_tokens: None,
+                        reasoning_output_tokens: usage
+                            .pointer("/completion_tokens_details/reasoning_tokens")
+                            .and_then(Value::as_u64),
+                        cost_usd: None,
+                    });
+                }
+            }
+            if let Some(choice) = frame
+                .get("choices")
+                .and_then(Value::as_array)
+                .and_then(|a| a.first())
+            {
+                if let Some(delta) = choice.get("delta") {
+                    if let Some(text) = delta
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                    {
+                        events.push(ModelEvent::TextDelta { text: text.into() });
+                    }
+                    if let Some(text) = delta
+                        .get("reasoning_content")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                    {
+                        events.push(ModelEvent::ThinkingDelta { text: text.into() });
+                    }
+                    if let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) {
+                        for call in calls {
+                            let index = call
+                                .get("index")
+                                .and_then(Value::as_u64)
+                                .ok_or("stream tool call missing index")?;
+                            let current = self.stream_state.calls.entry(index).or_default();
+                            if let Some(id) = call.get("id").and_then(Value::as_str) {
+                                current.id.push_str(id);
+                            }
+                            if let Some(function) = call.get("function") {
+                                if let Some(name) = function.get("name").and_then(Value::as_str) {
+                                    current.name.push_str(name);
+                                }
+                                if let Some(args) =
+                                    function.get("arguments").and_then(Value::as_str)
+                                {
+                                    current.arguments.push_str(args);
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
+                    self.stream_state.reason = Some(reason.into());
+                }
+            }
+        }
+        Ok(events)
+    }
+
+    fn stream_end(&mut self) -> Result<Vec<ModelEvent>, String> {
+        self.sse.finish()?;
+        if !self.stream_state.done {
+            return Err("Chat Completions stream ended without [DONE]".into());
+        }
+        let mut events = Vec::new();
+        for (_, call) in std::mem::take(&mut self.stream_state.calls) {
+            if call.id.is_empty() || call.name.is_empty() {
+                return Err("incomplete streamed tool call".into());
+            }
+            events.push(ModelEvent::ToolCallStart {
+                id: call.id.clone(),
+                name: call.name,
+            });
+            events.push(ModelEvent::ToolCallArgumentsDelta {
+                id: call.id.clone(),
+                text: call.arguments,
+            });
+            events.push(ModelEvent::ToolCallEnd { id: call.id });
+        }
+        if let Some(usage) = self.stream_state.usage.take() {
+            events.push(usage);
+        }
+        events.push(ModelEvent::Finished {
+            reason: self.stream_state.reason.take(),
+        });
+        Ok(events)
     }
 }
 

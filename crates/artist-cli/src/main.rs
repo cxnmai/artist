@@ -2,6 +2,7 @@ use artist_core::context::Conversation;
 use artist_core::engine::AgentEvent;
 use artist_lua::Runtime;
 use std::env;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -163,7 +164,7 @@ async fn main() -> ExitCode {
                 info.requires_reasoning_content.unwrap_or(false),
                 info.context_window,
                 &cwd,
-                emit,
+                emit_batch,
             )
             .await
             .is_err()
@@ -175,8 +176,19 @@ async fn main() -> ExitCode {
 }
 
 fn emit(event: AgentEvent) {
-    println!(
-        "{}",
-        serde_json::to_string(&event).expect("agent events serialize")
-    );
+    emit_batch(vec![event]);
+}
+
+// NDJSON is a CLI frontend; the engine passes typed event batches.
+fn emit_batch(events: Vec<AgentEvent>) {
+    let mut stdout = io::stdout().lock();
+    for event in events {
+        writeln!(
+            stdout,
+            "{}",
+            serde_json::to_string(&event).expect("agent events serialize")
+        )
+        .expect("write agent event");
+    }
+    stdout.flush().expect("flush agent events");
 }

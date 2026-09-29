@@ -68,5 +68,6 @@ pub fn parse_kind(lua: &Lua, table: &Table, parent: Option<&Table>) -> Result<Mo
         api_key_env,
         headers,
         options,
+        stream: table.get::<Option<bool>>("stream")?.unwrap_or(false),
     })
 }

@@ -32,7 +32,7 @@ pub trait Model {
         &'a mut self,
         context: &'a SelectedContext,
         tools: &'a [ToolDefinition],
-        emit: &'a mut dyn FnMut(ModelEvent),
+        emit: &'a mut dyn FnMut(Vec<ModelEvent>),
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + 'a>>;
 }
 
@@ -82,50 +82,58 @@ pub async fn run_turn(
     max_model_calls: usize,
     context_window: Option<u64>,
     mut prepare: impl FnMut(&Conversation) -> Result<TurnRequest, String>,
-    mut emit: impl FnMut(AgentEvent),
+    mut emit: impl FnMut(Vec<AgentEvent>),
 ) -> Result<(), String> {
     conversation.entries.push(ContextEntry::User {
         text: prompt.clone(),
     });
-    emit(AgentEvent::User { text: prompt });
+    emit(vec![AgentEvent::User { text: prompt }]);
     if let Some(usage) = context_window.and_then(|window| conversation.context_usage(window)) {
-        emit(AgentEvent::ContextUsage { usage });
+        emit(vec![AgentEvent::ContextUsage { usage }]);
     }
 
     for _ in 0..max_model_calls {
         let request = match prepare(conversation) {
             Ok(request) => request,
             Err(message) => {
-                emit(AgentEvent::Error {
+                emit(vec![AgentEvent::Error {
                     message: message.clone(),
-                });
+                }]);
                 return Err(message);
             }
         };
         let context = conversation.select(&request.selection);
         let mut response = ResponseAccumulator::new();
         let mut response_error = None;
-        let mut on_model_event = |event: ModelEvent| {
-            if response_error.is_none() {
-                if let Err(error) = response.push(event.clone()) {
-                    response_error = Some(error.to_string());
-                }
+        let mut on_model_events = |events: Vec<ModelEvent>| {
+            let batch = events
+                .into_iter()
+                .map(|event| {
+                    if response_error.is_none() {
+                        if let Err(error) = response.push(event.clone()) {
+                            response_error = Some(error.to_string());
+                        }
+                    }
+                    AgentEvent::Model { event }
+                })
+                .collect::<Vec<_>>();
+            if !batch.is_empty() {
+                emit(batch);
             }
-            emit(AgentEvent::Model { event });
         };
         if let Err(error) = model
-            .generate(&context, &request.tools, &mut on_model_event)
+            .generate(&context, &request.tools, &mut on_model_events)
             .await
         {
-            emit(AgentEvent::Error {
+            emit(vec![AgentEvent::Error {
                 message: error.clone(),
-            });
+            }]);
             return Err(error);
         }
         if let Some(error) = response_error {
-            emit(AgentEvent::Error {
+            emit(vec![AgentEvent::Error {
                 message: error.clone(),
-            });
+            }]);
             return Err(error);
         }
         let usage = response.usage;
@@ -133,21 +141,21 @@ pub async fn run_turn(
             Ok(entry) => entry,
             Err(error) => {
                 let message = error.to_string();
-                emit(AgentEvent::Error {
+                emit(vec![AgentEvent::Error {
                     message: message.clone(),
-                });
+                }]);
                 return Err(message);
             }
         };
         let has_calls = matches!(&assistant, ContextEntry::Assistant { blocks } if blocks.iter().any(|block| matches!(block, AssistantBlock::ToolCall { .. })));
-        emit(AgentEvent::Assistant {
+        emit(vec![AgentEvent::Assistant {
             entry: assistant.clone(),
-        });
+        }]);
         let assistant_index = conversation.entries.len();
         record_assistant(conversation, assistant, executor, cwd, &mut |entry| {
-            emit(AgentEvent::ToolResult {
+            emit(vec![AgentEvent::ToolResult {
                 entry: entry.clone(),
-            });
+            }]);
         })
         .await
         .expect("response accumulator produced an assistant entry");
@@ -160,16 +168,16 @@ pub async fn run_turn(
             });
         }
         if let Some(usage) = context_window.and_then(|window| conversation.context_usage(window)) {
-            emit(AgentEvent::ContextUsage { usage });
+            emit(vec![AgentEvent::ContextUsage { usage }]);
         }
         if !has_calls {
-            emit(AgentEvent::Done);
+            emit(vec![AgentEvent::Done]);
             return Ok(());
         }
     }
     let message = "model call limit reached".to_owned();
-    emit(AgentEvent::Error {
+    emit(vec![AgentEvent::Error {
         message: message.clone(),
-    });
+    }]);
     Err(message)
 }

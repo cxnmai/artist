@@ -113,18 +113,39 @@ impl Adapter for LuaAdapter<'_> {
     }
 }
 
-async fn complete<A: Adapter<Error = String>>(
+async fn generate<A: Adapter<Error = String>>(
     client: &artist_model::ModelClient,
     adapter: &mut A,
     input: &ModelInput<'_>,
+    stream: bool,
+    emit: &mut dyn FnMut(Vec<ModelEvent>),
 ) -> Result<Vec<ModelEvent>, String> {
+    let convert = |error| match error {
+        artist_model::ModelError::Transport(error) => error.to_string(),
+        artist_model::ModelError::Adapter(error) => error,
+    };
+    if !stream {
+        return client.complete(adapter, input).await.map_err(convert);
+    }
+    let mut pending = Vec::new();
     client
-        .complete(adapter, input)
-        .await
-        .map_err(|error| match error {
-            artist_model::ModelError::Transport(error) => error.to_string(),
-            artist_model::ModelError::Adapter(error) => error,
+        .stream(adapter, input, |events| {
+            let mut live = Vec::new();
+            for event in events {
+                match event {
+                    ModelEvent::TextDelta { .. } | ModelEvent::ThinkingDelta { .. } => {
+                        live.push(event)
+                    }
+                    _ => pending.push(event),
+                }
+            }
+            if !live.is_empty() {
+                emit(live);
+            }
         })
+        .await
+        .map_err(convert)?;
+    Ok(pending)
 }
 
 pub fn provider_headers(kind: &ModelKind) -> Result<HeaderMap, String> {
@@ -187,7 +208,7 @@ impl Model for LuaModel<'_> {
         &'a mut self,
         context: &'a SelectedContext,
         tools: &'a [ToolDefinition],
-        emit: &'a mut dyn FnMut(ModelEvent),
+        emit: &'a mut dyn FnMut(Vec<ModelEvent>),
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + 'a>> {
         Box::pin(async move {
             let input = ModelInput {
@@ -215,59 +236,48 @@ impl Model for LuaModel<'_> {
                         model_name: &self.model_name,
                         reasoning_level: self.reasoning_level.as_deref(),
                     };
-                    complete(&self.client, &mut adapter, &input).await?
+                    generate(&self.client, &mut adapter, &input, false, emit).await?
                 }
                 ModelKind::Http {
                     protocol,
                     endpoint,
                     options,
+                    stream,
                     ..
                 } => {
                     let headers = provider_headers(kind)?;
                     match protocol {
                         Protocol::ChatCompletions => {
-                            complete(
-                                &self.client,
-                                &mut ChatCompletions {
-                                    name: self.model_name.clone(),
-                                    endpoint: endpoint.clone(),
-                                    headers,
-                                    options: options.clone(),
-                                    reasoning_level: self.reasoning_level.clone(),
-                                    thinking_format: self.thinking_format.clone(),
-                                    requires_reasoning_content: self.requires_reasoning_content,
-                                },
-                                &input,
-                            )
-                            .await?
+                            let mut adapter = ChatCompletions::default();
+                            adapter.name = self.model_name.clone();
+                            adapter.endpoint = endpoint.clone();
+                            adapter.headers = headers;
+                            adapter.options = options.clone();
+                            adapter.reasoning_level = self.reasoning_level.clone();
+                            adapter.thinking_format = self.thinking_format.clone();
+                            adapter.requires_reasoning_content = self.requires_reasoning_content;
+                            adapter.stream = *stream;
+                            generate(&self.client, &mut adapter, &input, *stream, emit).await?
                         }
                         Protocol::OpenAIResponses => {
-                            complete(
-                                &self.client,
-                                &mut OpenAIResponses {
-                                    name: self.model_name.clone(),
-                                    endpoint: endpoint.clone(),
-                                    headers,
-                                    options: options.clone(),
-                                    reasoning_level: self.reasoning_level.clone(),
-                                },
-                                &input,
-                            )
-                            .await?
+                            let mut adapter = OpenAIResponses::default();
+                            adapter.name = self.model_name.clone();
+                            adapter.endpoint = endpoint.clone();
+                            adapter.headers = headers;
+                            adapter.options = options.clone();
+                            adapter.reasoning_level = self.reasoning_level.clone();
+                            adapter.stream = *stream;
+                            generate(&self.client, &mut adapter, &input, *stream, emit).await?
                         }
                         Protocol::AnthropicMessages => {
-                            complete(
-                                &self.client,
-                                &mut AnthropicMessages {
-                                    name: self.model_name.clone(),
-                                    endpoint: endpoint.clone(),
-                                    headers,
-                                    options: options.clone(),
-                                    reasoning_level: self.reasoning_level.clone(),
-                                },
-                                &input,
-                            )
-                            .await?
+                            let mut adapter = AnthropicMessages::default();
+                            adapter.name = self.model_name.clone();
+                            adapter.endpoint = endpoint.clone();
+                            adapter.headers = headers;
+                            adapter.options = options.clone();
+                            adapter.reasoning_level = self.reasoning_level.clone();
+                            adapter.stream = *stream;
+                            generate(&self.client, &mut adapter, &input, *stream, emit).await?
                         }
                     }
                 }
@@ -318,8 +328,8 @@ impl Model for LuaModel<'_> {
                     }
                 }
             }
-            for event in events {
-                emit(event);
+            if !events.is_empty() {
+                emit(events);
             }
             Ok(())
         })

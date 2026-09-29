@@ -32,6 +32,7 @@ pub enum ModelKind {
         api_key_env: Option<String>,
         headers: Option<Table>,
         options: serde_json::Map<String, Value>,
+        stream: bool,
     },
 }
 

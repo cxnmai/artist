@@ -115,7 +115,7 @@ impl Runtime {
         requires_reasoning_content: bool,
         context_window: Option<u64>,
         cwd: &Path,
-        emit: impl FnMut(AgentEvent),
+        emit: impl FnMut(Vec<AgentEvent>),
     ) -> Result<(), String> {
         let provider = self
             .registry

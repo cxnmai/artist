@@ -9,7 +9,7 @@ use adapter::Adapter;
 use artist_core::context::{ContextEntry, Conversation, SelectedContext};
 use artist_core::event::ModelEvent;
 use artist_core::tools::ToolDefinition;
-use http::HttpClient;
+use http::{HttpClient, Response};
 
 /// The portion of the conversation selected for one model request.
 pub struct ModelInput<'a> {
@@ -73,7 +73,7 @@ impl ModelClient {
         &self,
         adapter: &mut A,
         input: &ModelInput<'_>,
-        mut on_event: impl FnMut(ModelEvent),
+        mut on_events: impl FnMut(Vec<ModelEvent>),
     ) -> Result<(), ModelError<A::Error>> {
         let request = adapter.request(input).map_err(ModelError::Adapter)?;
         let mut response = self
@@ -81,19 +81,43 @@ impl ModelClient {
             .stream(request)
             .await
             .map_err(ModelError::Transport)?;
-        for event in adapter
+        if !(200..300).contains(&response.status()) {
+            let status = response.status();
+            let headers = response.headers().clone();
+            let mut body = Vec::new();
+            while let Some(chunk) = response.next_chunk().await.map_err(ModelError::Transport)? {
+                body.extend_from_slice(&chunk);
+                if body.len() > 1024 * 1024 {
+                    break;
+                }
+            }
+            let events = adapter
+                .response(Response {
+                    status,
+                    headers,
+                    body,
+                })
+                .map_err(ModelError::Adapter)?;
+            if !events.is_empty() {
+                on_events(events);
+            }
+            return Ok(());
+        }
+        let events = adapter
             .stream_start(response.status(), response.headers())
-            .map_err(ModelError::Adapter)?
-        {
-            on_event(event);
+            .map_err(ModelError::Adapter)?;
+        if !events.is_empty() {
+            on_events(events);
         }
         while let Some(chunk) = response.next_chunk().await.map_err(ModelError::Transport)? {
-            for event in adapter.stream_chunk(&chunk).map_err(ModelError::Adapter)? {
-                on_event(event);
+            let events = adapter.stream_chunk(&chunk).map_err(ModelError::Adapter)?;
+            if !events.is_empty() {
+                on_events(events);
             }
         }
-        for event in adapter.stream_end().map_err(ModelError::Adapter)? {
-            on_event(event);
+        let events = adapter.stream_end().map_err(ModelError::Adapter)?;
+        if !events.is_empty() {
+            on_events(events);
         }
         Ok(())
     }

@@ -1,5 +1,6 @@
 //! Stateless, buffered Responses API: replay native output items (including encrypted reasoning).
 
+use super::sse::Sse;
 use crate::ModelInput;
 use crate::adapter::Adapter;
 use crate::http::{HeaderMap, Method, Request, Response};
@@ -7,12 +8,18 @@ use artist_core::context::{AssistantBlock, ContextEntry};
 use artist_core::event::ModelEvent;
 use serde_json::{Value, json};
 
+#[derive(Default)]
 pub struct OpenAIResponses {
     pub name: String,
     pub endpoint: String,
     pub headers: HeaderMap,
     pub options: serde_json::Map<String, Value>,
     pub reasoning_level: Option<String>,
+    pub stream: bool,
+    pub(crate) sse: Sse,
+    pub(crate) completed: bool,
+    pub(crate) streamed_text: String,
+    pub(crate) streamed_thinking: bool,
 }
 
 impl Adapter for OpenAIResponses {
@@ -71,7 +78,7 @@ impl Adapter for OpenAIResponses {
         body.insert("model".into(), json!(self.name));
         body.insert("input".into(), json!(input));
         body.insert("store".into(), json!(false));
-        body.insert("stream".into(), json!(false));
+        body.insert("stream".into(), json!(self.stream));
         if !context.system_prompt.is_empty() {
             body.insert("instructions".into(), json!(context.system_prompt));
         } else {
@@ -217,7 +224,83 @@ impl Adapter for OpenAIResponses {
         Ok(events)
     }
 
-    fn stream_chunk(&mut self, _: &[u8]) -> Result<Vec<ModelEvent>, String> {
-        Err("Responses streaming is not configured".into())
+    fn stream_start(&mut self, status: u16, _: &HeaderMap) -> Result<Vec<ModelEvent>, String> {
+        if !(200..300).contains(&status) {
+            return Err(format!("Responses HTTP {status}"));
+        }
+        Ok(Vec::new())
+    }
+
+    fn stream_chunk(&mut self, chunk: &[u8]) -> Result<Vec<ModelEvent>, String> {
+        let mut events = Vec::new();
+        for (event_name, frame) in self.sse.push(chunk)? {
+            let kind = frame
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or(&event_name);
+            match kind {
+                "response.output_text.delta" => {
+                    let text = frame
+                        .get("delta")
+                        .and_then(Value::as_str)
+                        .ok_or("Responses text delta missing delta")?;
+                    self.streamed_text.push_str(text);
+                    events.push(ModelEvent::TextDelta { text: text.into() });
+                }
+                "response.reasoning_summary_text.delta" => {
+                    if let Some(text) = frame.get("delta").and_then(Value::as_str) {
+                        self.streamed_thinking = true;
+                        events.push(ModelEvent::ThinkingDelta { text: text.into() });
+                    }
+                }
+                "response.completed" => {
+                    if self.completed {
+                        return Err("duplicate Responses completion".into());
+                    }
+                    self.completed = true;
+                    let response = frame
+                        .get("response")
+                        .ok_or("Responses completed event missing response")?;
+                    let body = serde_json::to_vec(response).map_err(|e| e.to_string())?;
+                    let final_events = self.response(Response {
+                        status: 200,
+                        headers: HeaderMap::new(),
+                        body,
+                    })?;
+                    let final_text = final_events
+                        .iter()
+                        .filter_map(|event| match event {
+                            ModelEvent::TextDelta { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<String>();
+                    if !self.streamed_text.is_empty() && final_text != self.streamed_text {
+                        return Err(
+                            "Responses streamed text differs from completed response".into()
+                        );
+                    }
+                    for event in final_events {
+                        match &event {
+                            ModelEvent::TextDelta { .. } if !self.streamed_text.is_empty() => {}
+                            ModelEvent::ThinkingDelta { .. } if self.streamed_thinking => {} // Already displayed; native item is retained.
+                            _ => events.push(event),
+                        }
+                    }
+                }
+                "response.failed" | "error" => {
+                    return Err(format!("Responses stream error: {frame}"));
+                }
+                _ => {}
+            }
+        }
+        Ok(events)
+    }
+
+    fn stream_end(&mut self) -> Result<Vec<ModelEvent>, String> {
+        self.sse.finish()?;
+        if !self.completed {
+            return Err("Responses stream ended without response.completed".into());
+        }
+        Ok(Vec::new())
     }
 }

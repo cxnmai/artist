@@ -1,18 +1,34 @@
 //! Buffered Anthropic Messages protocol with signed thinking-block replay.
 
+use super::sse::Sse;
 use crate::ModelInput;
 use crate::adapter::Adapter;
 use crate::http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response};
 use artist_core::context::{AssistantBlock, ContextEntry};
 use artist_core::event::ModelEvent;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
+#[derive(Default)]
+pub(crate) struct MessageStream {
+    message: Option<Value>,
+    blocks: BTreeMap<u64, Value>,
+    arguments: BTreeMap<u64, String>,
+    text: String,
+    thinking: String,
+    done: bool,
+}
+
+#[derive(Default)]
 pub struct AnthropicMessages {
     pub name: String,
     pub endpoint: String,
     pub headers: HeaderMap,
     pub options: serde_json::Map<String, Value>,
     pub reasoning_level: Option<String>,
+    pub stream: bool,
+    pub(crate) sse: Sse,
+    pub(crate) stream_state: MessageStream,
 }
 
 impl Adapter for AnthropicMessages {
@@ -74,7 +90,7 @@ impl Adapter for AnthropicMessages {
         body.insert("model".into(), json!(self.name));
         body.insert("messages".into(), json!(messages));
         body.entry("max_tokens").or_insert_with(|| json!(8192));
-        body.insert("stream".into(), json!(false));
+        body.insert("stream".into(), json!(self.stream));
         if !context.system_prompt.is_empty() {
             body.insert("system".into(), json!(context.system_prompt));
         } else {
@@ -209,7 +225,184 @@ impl Adapter for AnthropicMessages {
         Ok(events)
     }
 
-    fn stream_chunk(&mut self, _: &[u8]) -> Result<Vec<ModelEvent>, String> {
-        Err("Messages streaming is not configured".into())
+    fn stream_start(&mut self, status: u16, _: &HeaderMap) -> Result<Vec<ModelEvent>, String> {
+        if !(200..300).contains(&status) {
+            return Err(format!("Messages HTTP {status}"));
+        }
+        Ok(Vec::new())
+    }
+
+    fn stream_chunk(&mut self, chunk: &[u8]) -> Result<Vec<ModelEvent>, String> {
+        let mut events = Vec::new();
+        for (event_name, frame) in self.sse.push(chunk)? {
+            let kind = frame
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or(&event_name);
+            match kind {
+                "message_start" => {
+                    self.stream_state.message = Some(
+                        frame
+                            .get("message")
+                            .ok_or("message_start missing message")?
+                            .clone(),
+                    );
+                }
+                "content_block_start" => {
+                    let index = frame
+                        .get("index")
+                        .and_then(Value::as_u64)
+                        .ok_or("content_block_start missing index")?;
+                    let block = frame
+                        .get("content_block")
+                        .ok_or("content_block_start missing content_block")?
+                        .clone();
+                    if self.stream_state.blocks.insert(index, block).is_some() {
+                        return Err("duplicate content block".into());
+                    }
+                }
+                "content_block_delta" => {
+                    let index = frame
+                        .get("index")
+                        .and_then(Value::as_u64)
+                        .ok_or("content_block_delta missing index")?;
+                    let block = self
+                        .stream_state
+                        .blocks
+                        .get_mut(&index)
+                        .ok_or("delta for unknown content block")?;
+                    let delta = frame
+                        .get("delta")
+                        .ok_or("content_block_delta missing delta")?;
+                    match delta.get("type").and_then(Value::as_str) {
+                        Some("text_delta") => {
+                            let text = delta
+                                .get("text")
+                                .and_then(Value::as_str)
+                                .ok_or("text_delta missing text")?;
+                            let current = block.get("text").and_then(Value::as_str).unwrap_or("");
+                            block["text"] = json!(format!("{current}{text}"));
+                            self.stream_state.text.push_str(text);
+                            events.push(ModelEvent::TextDelta { text: text.into() });
+                        }
+                        Some("thinking_delta") => {
+                            let text = delta
+                                .get("thinking")
+                                .and_then(Value::as_str)
+                                .ok_or("thinking_delta missing thinking")?;
+                            let current =
+                                block.get("thinking").and_then(Value::as_str).unwrap_or("");
+                            block["thinking"] = json!(format!("{current}{text}"));
+                            self.stream_state.thinking.push_str(text);
+                            events.push(ModelEvent::ThinkingDelta { text: text.into() });
+                        }
+                        Some("signature_delta") => {
+                            block["signature"] = delta
+                                .get("signature")
+                                .cloned()
+                                .ok_or("signature_delta missing signature")?;
+                        }
+                        Some("input_json_delta") => {
+                            let part = delta
+                                .get("partial_json")
+                                .and_then(Value::as_str)
+                                .ok_or("input_json_delta missing partial_json")?;
+                            self.stream_state
+                                .arguments
+                                .entry(index)
+                                .or_default()
+                                .push_str(part);
+                        }
+                        _ => {}
+                    }
+                }
+                "content_block_stop" => {
+                    let index = frame
+                        .get("index")
+                        .and_then(Value::as_u64)
+                        .ok_or("content_block_stop missing index")?;
+                    if let Some(args) = self.stream_state.arguments.remove(&index) {
+                        let block = self
+                            .stream_state
+                            .blocks
+                            .get_mut(&index)
+                            .ok_or("stop for unknown content block")?;
+                        block["input"] = serde_json::from_str(&args)
+                            .map_err(|e| format!("stream tool input: {e}"))?;
+                    }
+                }
+                "message_delta" => {
+                    let message = self
+                        .stream_state
+                        .message
+                        .as_mut()
+                        .ok_or("message_delta before message_start")?;
+                    if let Some(reason) = frame.pointer("/delta/stop_reason") {
+                        message["stop_reason"] = reason.clone();
+                    }
+                    if let Some(usage) = frame.get("usage") {
+                        if message.get("usage").is_none() {
+                            message["usage"] = json!({});
+                        }
+                        if let (Some(current), Some(fields)) =
+                            (message["usage"].as_object_mut(), usage.as_object())
+                        {
+                            current.extend(fields.clone());
+                        }
+                    }
+                }
+                "message_stop" => {
+                    if self.stream_state.done {
+                        return Err("duplicate message_stop".into());
+                    }
+                    self.stream_state.done = true;
+                    let mut message = self
+                        .stream_state
+                        .message
+                        .take()
+                        .ok_or("message_stop before message_start")?;
+                    message["content"] = json!(
+                        std::mem::take(&mut self.stream_state.blocks)
+                            .into_values()
+                            .collect::<Vec<_>>()
+                    );
+                    let body = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
+                    let final_events = self.response(Response {
+                        status: 200,
+                        headers: HeaderMap::new(),
+                        body,
+                    })?;
+                    let final_text = final_events
+                        .iter()
+                        .filter_map(|event| match event {
+                            ModelEvent::TextDelta { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<String>();
+                    if !self.stream_state.text.is_empty() && final_text != self.stream_state.text {
+                        return Err("Messages streamed text differs from final blocks".into());
+                    }
+                    for event in final_events {
+                        match &event {
+                            ModelEvent::TextDelta { .. } if !self.stream_state.text.is_empty() => {}
+                            ModelEvent::ThinkingDelta { .. }
+                                if !self.stream_state.thinking.is_empty() => {}
+                            _ => events.push(event),
+                        }
+                    }
+                }
+                "error" => return Err(format!("Messages stream error: {frame}")),
+                _ => {}
+            }
+        }
+        Ok(events)
+    }
+
+    fn stream_end(&mut self) -> Result<Vec<ModelEvent>, String> {
+        self.sse.finish()?;
+        if !self.stream_state.done {
+            return Err("Messages stream ended without message_stop".into());
+        }
+        Ok(Vec::new())
     }
 }
