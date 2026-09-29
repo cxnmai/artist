@@ -67,6 +67,20 @@ pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
             Ok(())
         })?,
     )?;
+    let removals = Rc::clone(&registry);
+    artist.set(
+        "unregister_tool",
+        lua.create_function(move |_, name: String| {
+            let mut registry = removals.borrow_mut();
+            let index = registry
+                .tools
+                .iter()
+                .position(|tool| tool.definition.name == name)
+                .ok_or_else(|| mlua::Error::external(format!("unknown tool: {name}")))?;
+            registry.tools.remove(index);
+            Ok(())
+        })?,
+    )?;
     let models = Rc::clone(&registry);
     artist.set(
         "model",
