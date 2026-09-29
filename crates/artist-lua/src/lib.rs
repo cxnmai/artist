@@ -1,5 +1,6 @@
 //! Embedded Lua policy and the bridges into Artist's Rust interfaces.
 
+mod catalog;
 mod model;
 mod prompt;
 mod registry;
@@ -48,16 +49,45 @@ impl Runtime {
     }
 
     pub fn has_model(&self) -> bool {
-        self.registry.borrow().model.is_some()
+        self.registry.borrow().provider.is_some()
+    }
+
+    pub async fn list_models(&self) -> Result<Vec<String>, String> {
+        let provider = self
+            .registry
+            .borrow()
+            .provider
+            .clone()
+            .ok_or("no provider configured")?;
+        catalog::list(&provider).await
+    }
+
+    pub fn select_model(&self, requested: Option<&str>) -> Result<String, String> {
+        let registry = self.registry.borrow();
+        let provider = registry.provider.as_ref().ok_or("no provider configured")?;
+        let name = requested
+            .or(provider.default_model.as_deref())
+            .or_else(|| (provider.models.len() == 1).then(|| provider.models[0].as_str()))
+            .ok_or("select a model with --model or set default_model")?;
+        if name.is_empty()
+            || (provider.discover.is_none() && !provider.models.iter().any(|id| id == name))
+        {
+            return Err(format!(
+                "model {name} is not in provider {}'s configured models",
+                provider.name
+            ));
+        }
+        Ok(name.into())
     }
 
     pub fn configure_conversation(
         &self,
         conversation: &mut Conversation,
         cwd: &Path,
+        model_name: &str,
     ) -> Result<(), String> {
         conversation.system_prompt =
-            prompt::build(&self.lua, &self.registry, cwd).map_err(|e| e.to_string())?;
+            prompt::build(&self.lua, &self.registry, cwd, model_name).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -65,16 +95,20 @@ impl Runtime {
         &self,
         conversation: &mut Conversation,
         prompt: String,
+        model_name: &str,
         cwd: &Path,
         emit: impl FnMut(AgentEvent),
     ) -> Result<(), String> {
-        let callbacks =
-            self.registry.borrow().model.clone().ok_or_else(|| {
-                "No model configured; a Lua model adapter is required.".to_owned()
-            })?;
+        let provider = self
+            .registry
+            .borrow()
+            .provider
+            .clone()
+            .ok_or_else(|| "No provider configured".to_owned())?;
         let mut model = LuaModel {
             lua: &self.lua,
-            callbacks,
+            provider,
+            model_name: model_name.into(),
             client: self.client.clone(),
         };
         let executor = LuaTools {

@@ -1,4 +1,4 @@
-use crate::registry::{ModelKind, RegisteredModel};
+use crate::registry::{ModelKind, RegisteredProvider};
 use artist_core::context::SelectedContext;
 use artist_core::engine::Model;
 use artist_core::event::ModelEvent;
@@ -30,6 +30,7 @@ struct LuaAdapter<'a> {
     lua: &'a Lua,
     request: &'a mlua::Function,
     response: &'a mlua::Function,
+    model_name: &'a str,
 }
 
 impl Adapter for LuaAdapter<'_> {
@@ -46,7 +47,7 @@ impl Adapter for LuaAdapter<'_> {
         let tools = self.lua.to_value(input.tools).map_err(|e| e.to_string())?;
         let value: LuaValue = self
             .request
-            .call((context, tools))
+            .call((context, tools, self.model_name))
             .map_err(|e| e.to_string())?;
         let spec: RequestSpec = self
             .lua
@@ -123,9 +124,45 @@ async fn complete<A: Adapter<Error = String>>(
         })
 }
 
+pub fn provider_headers(kind: &ModelKind) -> Result<HeaderMap, String> {
+    let ModelKind::ChatCompletions {
+        bearer_env,
+        headers,
+        ..
+    } = kind
+    else {
+        return Ok(HeaderMap::new());
+    };
+    let mut header_map = HeaderMap::new();
+    if let Some(env_name) = bearer_env {
+        let token = std::env::var(env_name)
+            .map_err(|_| format!("environment variable {env_name} is not set"))?;
+        header_map.insert(
+            HeaderName::from_static("authorization"),
+            bearer_header(&token)?,
+        );
+    }
+    if let Some(headers) = headers {
+        for pair in headers.clone().pairs::<String, LuaValue>() {
+            let (key, value) = pair.map_err(|e| e.to_string())?;
+            let value: String = match value {
+                LuaValue::String(text) => text.to_str().map_err(|e| e.to_string())?.to_owned(),
+                LuaValue::Function(callback) => callback.call(()).map_err(|e| e.to_string())?,
+                _ => return Err(format!("header {key} must be a string or function")),
+            };
+            header_map.insert(
+                HeaderName::from_bytes(key.as_bytes()).map_err(|e| e.to_string())?,
+                HeaderValue::from_str(&value).map_err(|e| e.to_string())?,
+            );
+        }
+    }
+    Ok(header_map)
+}
+
 pub struct LuaModel<'a> {
     pub lua: &'a Lua,
-    pub callbacks: RegisteredModel,
+    pub provider: RegisteredProvider,
+    pub model_name: String,
     pub client: artist_model::ModelClient,
 }
 
@@ -142,57 +179,23 @@ impl Model for LuaModel<'_> {
                 entries: &context.entries,
                 tools,
             };
-            let events = match &self.callbacks.kind {
+            let events = match &self.provider.kind {
                 ModelKind::Lua { request, response } => {
                     let mut adapter = LuaAdapter {
                         lua: self.lua,
                         request,
                         response,
+                        model_name: &self.model_name,
                     };
                     complete(&self.client, &mut adapter, &input).await?
                 }
                 ModelKind::ChatCompletions {
-                    endpoint,
-                    bearer_env,
-                    headers,
-                    options,
+                    endpoint, options, ..
                 } => {
-                    let mut header_map = HeaderMap::new();
-                    if let Some(env_name) = bearer_env {
-                        let token = std::env::var(env_name)
-                            .map_err(|_| format!("environment variable {env_name} is not set"))?;
-                        header_map.insert(
-                            HeaderName::from_static("authorization"),
-                            bearer_header(&token)?,
-                        );
-                    }
-                    if let Some(headers) = headers {
-                        for pair in headers.clone().pairs::<String, LuaValue>() {
-                            let (key, value) = pair.map_err(|e| e.to_string())?;
-                            let value: String = match value {
-                                LuaValue::String(text) => {
-                                    text.to_str().map_err(|e| e.to_string())?.to_owned()
-                                }
-                                LuaValue::Function(callback) => {
-                                    callback.call(()).map_err(|e| e.to_string())?
-                                }
-                                _ => {
-                                    return Err(format!(
-                                        "header {key} must be a string or function"
-                                    ));
-                                }
-                            };
-                            header_map.insert(
-                                HeaderName::from_bytes(key.as_bytes())
-                                    .map_err(|e| e.to_string())?,
-                                HeaderValue::from_str(&value).map_err(|e| e.to_string())?,
-                            );
-                        }
-                    }
                     let mut adapter = ChatCompletions {
-                        name: self.callbacks.name.clone(),
+                        name: self.model_name.clone(),
                         endpoint: endpoint.clone(),
-                        headers: header_map,
+                        headers: provider_headers(&self.provider.kind)?,
                         options: options.clone(),
                     };
                     complete(&self.client, &mut adapter, &input).await?

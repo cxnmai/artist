@@ -11,8 +11,13 @@ artist.append_system_prompt("Prefer focused changes and explain the result conci
 -- Removing one prevents both advertisement and execution through the registry.
 artist.unregister_tool("write")
 
-artist.model({
-  name = "deepseek-v4-pro",
+artist.provider({
+  name = "opencode-go",
+  -- The catalog mixes Chat Completions, Responses, and Messages models.
+  -- This example sends every selected model to Chat Completions; incompatible
+  -- selections will fail with the API's error until those adapters are added.
+  discover = { endpoint = "https://opencode.ai/zen/go/v1/models" },
+  default_model = "deepseek-v4-pro",
   adapter = "chat_completions",
   endpoint = "https://opencode.ai/zen/go/v1/chat/completions",
   auth = { bearer_env = "OPENCODE_GO_API_KEY" },
@@ -53,6 +58,6 @@ artist.register_tool({
 -- end)
 
 -- JSON helpers: artist.json.decode(text), artist.json.encode(value), artist.json.null.
--- For a non-Chat-Completions API, replace artist.model above with the generic
--- artist.model({name = "...", request = function(context, tools) ... end,
---               response = function(status, headers, body) ... end}) form.
+-- For an unsupported API, use artist.provider({name = "...", models = {"..."},
+--   request = function(context, tools, model_id) ... end,
+--   response = function(status, headers, body) ... end}) instead.

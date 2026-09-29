@@ -54,20 +54,16 @@ pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
     Ok(())
 }
 
-pub fn build(lua: &Lua, registry: &Rc<RefCell<Registry>>, cwd: &Path) -> Result<String> {
-    let (model_name, base, appends) = {
-        let registry = registry.borrow();
-        (
-            registry
-                .model
-                .as_ref()
-                .ok_or_else(|| mlua::Error::external("no model configured"))?
-                .name
-                .clone(),
-            registry.system_prompt.clone(),
-            registry.prompt_appends.clone(),
-        )
-    };
+pub fn build(
+    lua: &Lua,
+    registry: &Rc<RefCell<Registry>>,
+    cwd: &Path,
+    model_name: &str,
+) -> Result<String> {
+    let registry = registry.borrow();
+    let base = registry.system_prompt.clone();
+    let appends = registry.prompt_appends.clone();
+    drop(registry);
     let context = lua.create_table()?;
     context.set("model_name", model_name)?;
     context.set("cwd", cwd.to_string_lossy().as_ref())?;

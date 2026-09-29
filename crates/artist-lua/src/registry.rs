@@ -25,15 +25,24 @@ pub enum ModelKind {
 }
 
 #[derive(Clone)]
-pub struct RegisteredModel {
+pub struct Discovery {
+    pub endpoint: String,
+    pub filter: Option<Function>,
+}
+
+#[derive(Clone)]
+pub struct RegisteredProvider {
     pub name: String,
+    pub models: Vec<String>,
+    pub default_model: Option<String>,
+    pub discover: Option<Discovery>,
     pub kind: ModelKind,
 }
 
 #[derive(Default)]
 pub struct Registry {
     pub tools: Vec<RegisteredTool>,
-    pub model: Option<RegisteredModel>,
+    pub provider: Option<RegisteredProvider>,
     pub selector: Option<Function>,
     pub system_prompt: Option<PromptPart>,
     pub prompt_appends: Vec<PromptPart>,
@@ -81,11 +90,45 @@ pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
             Ok(())
         })?,
     )?;
-    let models = Rc::clone(&registry);
+    let providers = Rc::clone(&registry);
     artist.set(
-        "model",
+        "provider",
         lua.create_function(move |lua, table: Table| {
             let name: String = table.get("name")?;
+            let models: Vec<String> = table
+                .get::<Option<Vec<String>>>("models")?
+                .unwrap_or_default();
+            if models.iter().any(|model| model.is_empty())
+                || models.len()
+                    != models
+                        .iter()
+                        .collect::<std::collections::HashSet<_>>()
+                        .len()
+            {
+                return Err(mlua::Error::external(
+                    "models must contain unique nonempty IDs",
+                ));
+            }
+            let default_model: Option<String> = table.get("default_model")?;
+            let discover: Option<Table> = table.get("discover")?;
+            let discover = discover
+                .map(|config| {
+                    Ok::<_, mlua::Error>(Discovery {
+                        endpoint: config.get("endpoint")?,
+                        filter: config.get("filter")?,
+                    })
+                })
+                .transpose()?;
+            if models.is_empty() && discover.is_none() {
+                return Err(mlua::Error::external("provider needs models or discover"));
+            }
+            if let Some(default) = &default_model {
+                if default.is_empty() || (discover.is_none() && !models.contains(default)) {
+                    return Err(mlua::Error::external(
+                        "default_model must be a configured model ID",
+                    ));
+                }
+            }
             let kind = match table.get::<Option<String>>("adapter")? {
                 Some(adapter) if adapter == "chat_completions" => {
                     if table.contains_key("request")? || table.contains_key("response")? {
@@ -121,8 +164,34 @@ pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
                     response: table.get("response")?,
                 },
             };
-            models.borrow_mut().model = Some(RegisteredModel { name, kind });
+            if discover.is_some() && !matches!(kind, ModelKind::ChatCompletions { .. }) {
+                return Err(mlua::Error::external(
+                    "discovery currently requires chat_completions",
+                ));
+            }
+            let mut registry = providers.borrow_mut();
+            if registry.provider.is_some() {
+                return Err(mlua::Error::external("only one provider can be configured"));
+            }
+            registry.provider = Some(RegisteredProvider {
+                name,
+                models,
+                default_model,
+                discover,
+                kind,
+            });
             Ok(())
+        })?,
+    )?;
+    // Compatibility for existing single-model configurations.
+    let provider_registration: Function = artist.get("provider")?;
+    artist.set(
+        "model",
+        lua.create_function(move |_, table: Table| {
+            let name: String = table.get("name")?;
+            table.set("models", vec![name.clone()])?;
+            table.set("default_model", name)?;
+            provider_registration.call::<()>(table)
         })?,
     )?;
     artist.set(

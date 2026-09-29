@@ -60,6 +60,24 @@ impl HttpClient {
         }
     }
 
+    pub async fn get(&self, url: &str, headers: HeaderMap) -> Result<Response, reqwest::Error> {
+        let response = self
+            .client
+            .get(url)
+            .headers(headers)
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await?;
+        let status = response.status().as_u16();
+        let headers = response.headers().clone();
+        let body = response.bytes().await?.to_vec();
+        Ok(Response {
+            status,
+            headers,
+            body,
+        })
+    }
+
     pub async fn send(&self, request: Request) -> Result<Response, reqwest::Error> {
         let response = self.start(request).await?;
         let status = response.status();
