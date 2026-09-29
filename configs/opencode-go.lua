@@ -23,14 +23,18 @@ artist.model({
   options = {}, -- Optional API body fields, e.g. max_tokens if supported.
 })
 
--- Optional: register a custom tool using the same API as the built-ins.
--- artist.register_tool({
---   name = "echo", description = "Echo JSON arguments",
---   parameters = {type = "object", properties = {text = {type = "string"}}, required = {"text"}},
---   execute = function(args, ctx)
---     return {text = artist.json.encode(args), is_error = false}
---   end,
--- })
+-- Custom tools use the same registration path as the built-ins.
+artist.register_tool({
+  name = "add", description = "Add two numbers",
+  parameters = {
+    type = "object",
+    properties = {a = {type = "number"}, b = {type = "number"}},
+    required = {"a", "b"},
+  },
+  execute = function(args, ctx)
+    return {text = tostring(args.a + args.b), is_error = false}
+  end,
+})
 
 -- Optional: select context before each model request. The default includes all.
 -- Indices in included_blocks refer to the original conversation and are zero-based.
