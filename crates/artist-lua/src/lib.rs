@@ -117,14 +117,16 @@ impl Runtime {
         context_window: Option<u64>,
         cwd: &Path,
         cancellation: &CancellationToken,
-        emit: impl FnMut(Vec<AgentEvent>),
+        mut emit: impl FnMut(Vec<AgentEvent>),
     ) -> Result<TurnOutcome, String> {
-        let provider = self
-            .registry
-            .borrow()
-            .provider
-            .clone()
-            .ok_or_else(|| "No provider configured".to_owned())?;
+        let provider = self.registry.borrow().provider.clone();
+        let Some(provider) = provider else {
+            let message = "No provider configured".to_owned();
+            emit(vec![AgentEvent::Error {
+                message: message.clone(),
+            }]);
+            return Err(message);
+        };
         let mut model = LuaModel {
             lua: &self.lua,
             provider,

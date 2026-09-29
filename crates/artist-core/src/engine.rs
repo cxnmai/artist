@@ -5,6 +5,7 @@ use crate::context::{
     AssistantBlock, ContextEntry, ContextSelection, Conversation, SelectedContext,
 };
 use crate::context_usage::{ContextUsage, UsageAnchor};
+use crate::display::{DisplayEntry, DisplayModelEvent};
 use crate::event::ModelEvent;
 use crate::response::ResponseAccumulator;
 use crate::tools::{ToolDefinition, ToolExecutor, record_assistant};
@@ -37,6 +38,7 @@ pub trait Model {
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + 'a>>;
 }
 
+/// Frontend-safe events. Protocol replay items are only stored in `Conversation`.
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
@@ -59,13 +61,13 @@ pub enum AgentEvent {
         text: String,
     },
     Model {
-        event: ModelEvent,
+        event: DisplayModelEvent,
     },
     Assistant {
-        entry: ContextEntry,
+        entry: DisplayEntry,
     },
     ToolResult {
-        entry: ContextEntry,
+        entry: DisplayEntry,
     },
     Error {
         message: String,
@@ -81,6 +83,8 @@ pub enum TurnOutcome {
 }
 
 /// Calls `prepare` before *each* model request; it can select history and tools anew.
+/// Every normal return emits exactly one terminal event. Cancel through the token,
+/// not by dropping this future, to preserve tool-result pairing and notification.
 pub async fn run_turn(
     conversation: &mut Conversation,
     prompt: String,
@@ -93,6 +97,42 @@ pub async fn run_turn(
     mut prepare: impl FnMut(&Conversation) -> Result<TurnRequest, String>,
     mut emit: impl FnMut(Vec<AgentEvent>),
 ) -> Result<TurnOutcome, String> {
+    let outcome = run_turn_inner(
+        conversation,
+        prompt,
+        model,
+        executor,
+        cwd,
+        max_model_calls,
+        context_window,
+        cancellation,
+        &mut prepare,
+        &mut emit,
+    )
+    .await;
+    let terminal = match &outcome {
+        Ok(TurnOutcome::Completed) => AgentEvent::Done,
+        Ok(TurnOutcome::Cancelled) => AgentEvent::Cancelled,
+        Err(message) => AgentEvent::Error {
+            message: message.clone(),
+        },
+    };
+    emit(vec![terminal]);
+    outcome
+}
+
+async fn run_turn_inner(
+    conversation: &mut Conversation,
+    prompt: String,
+    model: &mut dyn Model,
+    executor: &dyn ToolExecutor,
+    cwd: &Path,
+    max_model_calls: usize,
+    context_window: Option<u64>,
+    cancellation: &CancellationToken,
+    prepare: &mut impl FnMut(&Conversation) -> Result<TurnRequest, String>,
+    emit: &mut impl FnMut(Vec<AgentEvent>),
+) -> Result<TurnOutcome, String> {
     conversation.entries.push(ContextEntry::User {
         text: prompt.clone(),
     });
@@ -103,20 +143,15 @@ pub async fn run_turn(
 
     for _ in 0..max_model_calls {
         if cancellation.is_cancelled() {
-            emit(vec![AgentEvent::Cancelled]);
             return Ok(TurnOutcome::Cancelled);
         }
         let request = match prepare(conversation) {
             Ok(request) => request,
             Err(message) => {
-                emit(vec![AgentEvent::Error {
-                    message: message.clone(),
-                }]);
                 return Err(message);
             }
         };
         if cancellation.is_cancelled() {
-            emit(vec![AgentEvent::Cancelled]);
             return Ok(TurnOutcome::Cancelled);
         }
         let context = conversation.select(&request.selection);
@@ -125,13 +160,13 @@ pub async fn run_turn(
         let mut on_model_events = |events: Vec<ModelEvent>| {
             let batch = events
                 .into_iter()
-                .map(|event| {
+                .filter_map(|event| {
                     if response_error.is_none() {
                         if let Err(error) = response.push(event.clone()) {
                             response_error = Some(error.to_string());
                         }
                     }
-                    AgentEvent::Model { event }
+                    DisplayModelEvent::from_model(event).map(|event| AgentEvent::Model { event })
                 })
                 .collect::<Vec<_>>();
             if !batch.is_empty() {
@@ -144,19 +179,12 @@ pub async fn run_turn(
             result = model.generate(&context, &request.tools, &mut on_model_events) => Some(result),
         };
         if generation.is_none() || cancellation.is_cancelled() {
-            emit(vec![AgentEvent::Cancelled]);
             return Ok(TurnOutcome::Cancelled);
         }
         if let Err(error) = generation.expect("generation completed") {
-            emit(vec![AgentEvent::Error {
-                message: error.clone(),
-            }]);
             return Err(error);
         }
         if let Some(error) = response_error {
-            emit(vec![AgentEvent::Error {
-                message: error.clone(),
-            }]);
             return Err(error);
         }
         let usage = response.usage;
@@ -164,19 +192,15 @@ pub async fn run_turn(
             Ok(entry) => entry,
             Err(error) => {
                 let message = error.to_string();
-                emit(vec![AgentEvent::Error {
-                    message: message.clone(),
-                }]);
                 return Err(message);
             }
         };
         if cancellation.is_cancelled() {
-            emit(vec![AgentEvent::Cancelled]);
             return Ok(TurnOutcome::Cancelled);
         }
         let has_calls = matches!(&assistant, ContextEntry::Assistant { blocks } if blocks.iter().any(|block| matches!(block, AssistantBlock::ToolCall { .. })));
         emit(vec![AgentEvent::Assistant {
-            entry: assistant.clone(),
+            entry: DisplayEntry::from(&assistant),
         }]);
         let assistant_index = conversation.entries.len();
         let interrupted = record_assistant(
@@ -187,7 +211,7 @@ pub async fn run_turn(
             cancellation,
             &mut |entry| {
                 emit(vec![AgentEvent::ToolResult {
-                    entry: entry.clone(),
+                    entry: DisplayEntry::from(entry),
                 }]);
             },
         )
@@ -205,17 +229,12 @@ pub async fn run_turn(
             emit(vec![AgentEvent::ContextUsage { usage }]);
         }
         if interrupted || cancellation.is_cancelled() {
-            emit(vec![AgentEvent::Cancelled]);
             return Ok(TurnOutcome::Cancelled);
         }
         if !has_calls {
-            emit(vec![AgentEvent::Done]);
             return Ok(TurnOutcome::Completed);
         }
     }
     let message = "model call limit reached".to_owned();
-    emit(vec![AgentEvent::Error {
-        message: message.clone(),
-    }]);
     Err(message)
 }

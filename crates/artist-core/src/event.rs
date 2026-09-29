@@ -1,4 +1,5 @@
-//! Events consumed by the core and frontends, regardless of provider format.
+//! Internal normalized model events, including protocol replay data.
+//! Frontends receive the safe projections in `crate::display` instead.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
