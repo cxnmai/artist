@@ -1,10 +1,11 @@
-use crate::registry::ModelCallbacks;
+use crate::registry::{ModelKind, RegisteredModel};
 use artist_core::context::SelectedContext;
 use artist_core::engine::Model;
 use artist_core::event::ModelEvent;
 use artist_core::tools::ToolDefinition;
 use artist_model::ModelInput;
 use artist_model::adapter::Adapter;
+use artist_model::adapters::chat_completions::{ChatCompletions, bearer_header};
 use artist_model::http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response};
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use serde::Deserialize;
@@ -27,7 +28,8 @@ struct RequestSpec {
 
 struct LuaAdapter<'a> {
     lua: &'a Lua,
-    callbacks: &'a ModelCallbacks,
+    request: &'a mlua::Function,
+    response: &'a mlua::Function,
 }
 
 impl Adapter for LuaAdapter<'_> {
@@ -43,7 +45,6 @@ impl Adapter for LuaAdapter<'_> {
             .map_err(|e| e.to_string())?;
         let tools = self.lua.to_value(input.tools).map_err(|e| e.to_string())?;
         let value: LuaValue = self
-            .callbacks
             .request
             .call((context, tools))
             .map_err(|e| e.to_string())?;
@@ -93,7 +94,6 @@ impl Adapter for LuaAdapter<'_> {
         let headers = self.lua.to_value(&headers).map_err(|e| e.to_string())?;
         let body = self.lua.to_value(&body).map_err(|e| e.to_string())?;
         let events: LuaValue = self
-            .callbacks
             .response
             .call((response.status, headers, body))
             .map_err(|e| e.to_string())?;
@@ -109,9 +109,23 @@ impl Adapter for LuaAdapter<'_> {
     }
 }
 
+async fn complete<A: Adapter<Error = String>>(
+    client: &artist_model::ModelClient,
+    adapter: &mut A,
+    input: &ModelInput<'_>,
+) -> Result<Vec<ModelEvent>, String> {
+    client
+        .complete(adapter, input)
+        .await
+        .map_err(|error| match error {
+            artist_model::ModelError::Transport(error) => error.to_string(),
+            artist_model::ModelError::Adapter(error) => error,
+        })
+}
+
 pub struct LuaModel<'a> {
     pub lua: &'a Lua,
-    pub callbacks: ModelCallbacks,
+    pub callbacks: RegisteredModel,
     pub client: artist_model::ModelClient,
 }
 
@@ -123,23 +137,67 @@ impl Model for LuaModel<'_> {
         emit: &'a mut dyn FnMut(ModelEvent),
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + 'a>> {
         Box::pin(async move {
-            let mut adapter = LuaAdapter {
-                lua: self.lua,
-                callbacks: &self.callbacks,
-            };
             let input = ModelInput {
                 system_prompt: &context.system_prompt,
                 entries: &context.entries,
                 tools,
             };
-            let events = self
-                .client
-                .complete(&mut adapter, &input)
-                .await
-                .map_err(|error| match error {
-                    artist_model::ModelError::Transport(error) => error.to_string(),
-                    artist_model::ModelError::Adapter(error) => error,
-                })?;
+            let events = match &self.callbacks.kind {
+                ModelKind::Lua { request, response } => {
+                    let mut adapter = LuaAdapter {
+                        lua: self.lua,
+                        request,
+                        response,
+                    };
+                    complete(&self.client, &mut adapter, &input).await?
+                }
+                ModelKind::ChatCompletions {
+                    endpoint,
+                    bearer_env,
+                    headers,
+                    options,
+                } => {
+                    let mut header_map = HeaderMap::new();
+                    if let Some(env_name) = bearer_env {
+                        let token = std::env::var(env_name)
+                            .map_err(|_| format!("environment variable {env_name} is not set"))?;
+                        header_map.insert(
+                            HeaderName::from_static("authorization"),
+                            bearer_header(&token)?,
+                        );
+                    }
+                    if let Some(headers) = headers {
+                        for pair in headers.clone().pairs::<String, LuaValue>() {
+                            let (key, value) = pair.map_err(|e| e.to_string())?;
+                            let value: String = match value {
+                                LuaValue::String(text) => {
+                                    text.to_str().map_err(|e| e.to_string())?.to_owned()
+                                }
+                                LuaValue::Function(callback) => {
+                                    callback.call(()).map_err(|e| e.to_string())?
+                                }
+                                _ => {
+                                    return Err(format!(
+                                        "header {key} must be a string or function"
+                                    ));
+                                }
+                            };
+                            header_map.insert(
+                                HeaderName::from_bytes(key.as_bytes())
+                                    .map_err(|e| e.to_string())?,
+                                HeaderValue::from_str(&value).map_err(|e| e.to_string())?,
+                            );
+                        }
+                    }
+                    let mut adapter = ChatCompletions {
+                        name: self.callbacks.name.clone(),
+                        endpoint: endpoint.clone(),
+                        headers: header_map,
+                        options: options.clone(),
+                    };
+                    complete(&self.client, &mut adapter, &input).await?
+                }
+            };
             for event in events {
                 emit(event);
             }

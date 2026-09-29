@@ -1,6 +1,7 @@
 //! Arbitrary model APIs over one reusable HTTP client.
 
 pub mod adapter;
+pub mod adapters;
 pub mod http;
 pub mod json;
 

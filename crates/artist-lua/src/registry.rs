@@ -1,6 +1,7 @@
 use crate::prompt::PromptPart;
 use artist_core::tools::ToolDefinition;
 use mlua::{Function, Lua, LuaSerdeExt, Result, Table};
+use serde_json::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -10,16 +11,29 @@ pub struct RegisteredTool {
 }
 
 #[derive(Clone)]
-pub struct ModelCallbacks {
+pub enum ModelKind {
+    Lua {
+        request: Function,
+        response: Function,
+    },
+    ChatCompletions {
+        endpoint: String,
+        bearer_env: Option<String>,
+        headers: Option<Table>,
+        options: serde_json::Map<String, Value>,
+    },
+}
+
+#[derive(Clone)]
+pub struct RegisteredModel {
     pub name: String,
-    pub request: Function,
-    pub response: Function,
+    pub kind: ModelKind,
 }
 
 #[derive(Default)]
 pub struct Registry {
     pub tools: Vec<RegisteredTool>,
-    pub model: Option<ModelCallbacks>,
+    pub model: Option<RegisteredModel>,
     pub selector: Option<Function>,
     pub system_prompt: Option<PromptPart>,
     pub prompt_appends: Vec<PromptPart>,
@@ -56,12 +70,44 @@ pub fn install(lua: &Lua, registry: Rc<RefCell<Registry>>) -> Result<()> {
     let models = Rc::clone(&registry);
     artist.set(
         "model",
-        lua.create_function(move |_, table: Table| {
-            models.borrow_mut().model = Some(ModelCallbacks {
-                name: table.get("name")?,
-                request: table.get("request")?,
-                response: table.get("response")?,
-            });
+        lua.create_function(move |lua, table: Table| {
+            let name: String = table.get("name")?;
+            let kind = match table.get::<Option<String>>("adapter")? {
+                Some(adapter) if adapter == "chat_completions" => {
+                    if table.contains_key("request")? || table.contains_key("response")? {
+                        return Err(mlua::Error::external(
+                            "use either adapter or request/response callbacks",
+                        ));
+                    }
+                    let auth: Option<Table> = table.get("auth")?;
+                    let bearer_env = auth
+                        .as_ref()
+                        .map(|auth| auth.get::<String>("bearer_env"))
+                        .transpose()?;
+                    let options = match table.get::<Option<mlua::Value>>("options")? {
+                        Some(value) => lua.from_value::<serde_json::Map<String, Value>>(value)?,
+                        None => serde_json::Map::new(),
+                    };
+                    ModelKind::ChatCompletions {
+                        endpoint: table
+                            .get::<Option<String>>("endpoint")?
+                            .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".into()),
+                        bearer_env,
+                        headers: table.get("headers")?,
+                        options,
+                    }
+                }
+                Some(adapter) => {
+                    return Err(mlua::Error::external(format!(
+                        "unknown model adapter: {adapter}"
+                    )));
+                }
+                None => ModelKind::Lua {
+                    request: table.get("request")?,
+                    response: table.get("response")?,
+                },
+            };
+            models.borrow_mut().model = Some(RegisteredModel { name, kind });
             Ok(())
         })?,
     )?;
