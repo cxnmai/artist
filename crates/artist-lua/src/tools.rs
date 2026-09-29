@@ -64,10 +64,6 @@ pub fn install_native(lua: &Lua) -> mlua::Result<()> {
     let artist: mlua::Table = lua.globals().get("artist")?;
     let native = lua.create_table()?;
     native.set(
-        "definitions",
-        lua.create_function(|lua, ()| lua.to_value(&artist_tools::definitions::definitions()))?,
-    )?;
-    native.set(
         "execute",
         lua.create_async_function(
             |lua, (name, args, cwd): (String, LuaValue, String)| async move {
