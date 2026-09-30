@@ -60,6 +60,7 @@ pub struct Registry {
     pub tools: Vec<RegisteredTool>,
     pub provider: Option<RegisteredProvider>,
     pub selector: Option<Function>,
+    pub compaction: Option<crate::compaction::RegisteredCompaction>,
     pub system_prompt: Option<PromptPart>,
     pub prompt_appends: Vec<PromptPart>,
 }
