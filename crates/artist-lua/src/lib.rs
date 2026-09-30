@@ -2,11 +2,14 @@
 
 mod catalog;
 mod compaction;
+mod compaction_options;
+mod compaction_summary;
 mod model;
 pub mod model_info;
 mod prompt;
 mod provider_config;
 mod registry;
+mod summary_response;
 mod tools;
 
 use artist_core::cancellation::CancellationToken;
@@ -30,10 +33,13 @@ pub struct Runtime {
 impl Runtime {
     pub fn new(config: Option<&Path>) -> Result<Self, String> {
         let lua = Lua::new();
+        let client = ModelClient::new();
         let registry = Rc::new(RefCell::new(Registry::default()));
         registry::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
         prompt::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
         compaction::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
+        compaction_summary::install(&lua, Rc::clone(&registry), client.clone())
+            .map_err(|e| e.to_string())?;
         tools::install_native(&lua).map_err(|e| e.to_string())?;
         lua.load(include_str!("default.lua"))
             .set_name("artist/default.lua")
@@ -49,7 +55,7 @@ impl Runtime {
         Ok(Self {
             lua,
             registry,
-            client: ModelClient::new(),
+            client,
         })
     }
 
@@ -138,6 +144,8 @@ impl Runtime {
             thinking_format: thinking_format.map(str::to_owned),
             requires_reasoning_content,
             client: self.client.clone(),
+            compaction: self.registry.borrow().compaction.clone(),
+            summary_max_tokens: None,
         };
         let executor = LuaTools {
             lua: &self.lua,
