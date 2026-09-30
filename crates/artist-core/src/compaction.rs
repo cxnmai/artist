@@ -64,6 +64,9 @@ impl CompactionResult {
         if self.summary.trim().is_empty() || self.context.entries.is_empty() {
             return Err("compaction returned an empty summary or context".into());
         }
+        if self.removed_entries == 0 || self.removed_entries > previous.entries.len() {
+            return Err("compaction returned an invalid removed-entry count".into());
+        }
         if self.context.system_prompt != previous.system_prompt {
             return Err("compaction cannot change the system prompt".into());
         }

@@ -1,6 +1,7 @@
 //! One user turn, independent of model providers and tool implementations.
 
 use crate::cancellation::CancellationToken;
+use crate::compaction::CompactionResult;
 use crate::context::{
     AssistantBlock, ContextEntry, ContextSelection, Conversation, SelectedContext,
 };
@@ -30,6 +31,15 @@ impl Default for TurnRequest {
 
 /// The provider-specific implementation emits normalized events, not wire-format JSON.
 pub trait Model {
+    /// Optional policy hook, evaluated before each request with complete tool results.
+    fn compact<'a>(
+        &'a mut self,
+        _context: &'a Conversation,
+        _context_window: Option<u64>,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<CompactionResult>, String>> + 'a>> {
+        Box::pin(async { Ok(None) })
+    }
+
     fn generate<'a>(
         &'a mut self,
         context: &'a SelectedContext,
@@ -68,6 +78,11 @@ pub enum AgentEvent {
     },
     ToolResult {
         entry: DisplayEntry,
+    },
+    Compacted {
+        summary: String,
+        removed_entries: usize,
+        usage: Vec<DisplayModelEvent>,
     },
     Error {
         message: String,
@@ -144,6 +159,30 @@ async fn run_turn_inner(
     for _ in 0..max_model_calls {
         if cancellation.is_cancelled() {
             return Ok(TurnOutcome::Cancelled);
+        }
+        let compacted = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => return Ok(TurnOutcome::Cancelled),
+            result = model.compact(conversation, context_window) => result,
+        };
+        if cancellation.is_cancelled() {
+            return Ok(TurnOutcome::Cancelled);
+        }
+        if let Some(result) = compacted? {
+            result.validate(conversation)?;
+            let mut replacement = result.context;
+            replacement.last_usage = None;
+            *conversation = replacement;
+            emit(vec![AgentEvent::Compacted {
+                summary: result.summary,
+                removed_entries: result.removed_entries,
+                usage: result.usage,
+            }]);
+            if let Some(usage) =
+                context_window.and_then(|window| conversation.context_usage(window))
+            {
+                emit(vec![AgentEvent::ContextUsage { usage }]);
+            }
         }
         let request = match prepare(conversation) {
             Ok(request) => request,
