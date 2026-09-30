@@ -1,5 +1,6 @@
 //! Provider-neutral HTTP transport. A non-2xx status is still a response.
 
+use crate::retry::{RetryPolicy, retryable_status};
 use std::time::Duration;
 
 pub use reqwest::Method;
@@ -45,6 +46,7 @@ impl StreamResponse {
 #[derive(Clone)]
 pub struct HttpClient {
     client: reqwest::Client,
+    retry: RetryPolicy,
 }
 
 impl Default for HttpClient {
@@ -57,6 +59,14 @@ impl HttpClient {
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::new(),
+            retry: RetryPolicy::default(),
+        }
+    }
+
+    pub fn with_retry_policy(retry: RetryPolicy) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            retry,
         }
     }
 
@@ -97,14 +107,41 @@ impl HttpClient {
     async fn start(&self, request: Request) -> Result<StreamResponse, reqwest::Error> {
         let mut builder = self
             .client
-            .request(request.method, request.url)
-            .headers(request.headers)
+            .request(request.method.clone(), &request.url)
+            .headers(request.headers.clone())
             .json(&request.body);
         if let Some(timeout) = request.timeout {
             builder = builder.timeout(timeout);
         }
-        Ok(StreamResponse {
-            response: builder.send().await?,
-        })
+        let request = builder.build()?;
+        let mut retry = 0;
+        loop {
+            // These requests have replayable JSON bodies. No adapter state is advanced here.
+            let attempt = request.try_clone().expect("JSON HTTP request is cloneable");
+            match self.client.execute(attempt).await {
+                Ok(response) => {
+                    if retryable_status(response.status().as_u16()) {
+                        if let Some(delay) = self.retry.delay(retry, Some(response.headers())) {
+                            drop(response);
+                            retry += 1;
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+                    }
+                    return Ok(StreamResponse { response });
+                }
+                Err(error) => {
+                    // Timeouts/read errors may follow acceptance by the provider; do not replay them.
+                    if error.is_connect() {
+                        if let Some(delay) = self.retry.delay(retry, None) {
+                            retry += 1;
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+                    }
+                    return Err(error);
+                }
+            }
+        }
     }
 }

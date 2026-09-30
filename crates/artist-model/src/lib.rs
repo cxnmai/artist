@@ -4,6 +4,7 @@ pub mod adapter;
 pub mod adapters;
 pub mod http;
 pub mod json;
+pub mod retry;
 
 use adapter::Adapter;
 use artist_core::context::{ContextEntry, Conversation, SelectedContext};
@@ -52,6 +53,13 @@ pub struct ModelClient {
 impl ModelClient {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Configure retries before model response processing. Zero retries disables them.
+    pub fn with_retry_policy(policy: retry::RetryPolicy) -> Self {
+        Self {
+            http: HttpClient::with_retry_policy(policy),
+        }
     }
 
     pub async fn complete<A: Adapter>(
