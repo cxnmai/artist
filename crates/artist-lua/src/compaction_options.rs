@@ -48,6 +48,11 @@ pub fn output_options(
         options.remove("max_output_tokens");
         // A standalone summarizer does not inherit automatic server compaction.
         options.remove("context_management");
+        options.remove("compaction");
+        options.remove("tool_choice");
+        options.remove("parallel_tool_calls");
+        options.remove("stream_options");
+        options.remove("response_format");
         let key = match protocol {
             Protocol::ChatCompletions if completion_limit => "max_completion_tokens",
             Protocol::ChatCompletions => "max_tokens",
