@@ -34,6 +34,7 @@ struct LuaAdapter<'a> {
     response: &'a mlua::Function,
     model_name: &'a str,
     reasoning_level: Option<&'a str>,
+    max_output_tokens: Option<u64>,
 }
 
 impl Adapter for LuaAdapter<'_> {
@@ -45,6 +46,7 @@ impl Adapter for LuaAdapter<'_> {
             .to_value(&serde_json::json!({
                 "system_prompt": input.system_prompt,
                 "entries": input.entries,
+                "max_output_tokens": self.max_output_tokens,
             }))
             .map_err(|e| e.to_string())?;
         let tools = self.lua.to_value(input.tools).map_err(|e| e.to_string())?;
@@ -201,9 +203,28 @@ pub struct LuaModel<'a> {
     pub thinking_format: Option<String>,
     pub requires_reasoning_content: bool,
     pub client: artist_model::ModelClient,
+    pub compaction: Option<crate::compaction::RegisteredCompaction>,
+    pub summary_max_tokens: Option<u64>,
 }
 
 impl Model for LuaModel<'_> {
+    fn compact<'a>(
+        &'a mut self,
+        context: &'a artist_core::context::Conversation,
+        context_window: Option<u64>,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<artist_core::compaction::CompactionResult>, String>>
+                + 'a,
+        >,
+    > {
+        Box::pin(crate::compaction::maybe_compact(
+            self,
+            context,
+            context_window,
+        ))
+    }
+
     fn generate<'a>(
         &'a mut self,
         context: &'a SelectedContext,
@@ -235,6 +256,7 @@ impl Model for LuaModel<'_> {
                         response,
                         model_name: &self.model_name,
                         reasoning_level: self.reasoning_level.as_deref(),
+                        max_output_tokens: self.summary_max_tokens,
                     };
                     generate(&self.client, &mut adapter, &input, false, emit).await?
                 }
@@ -242,9 +264,16 @@ impl Model for LuaModel<'_> {
                     protocol,
                     endpoint,
                     options,
-                    stream,
+                    stream: configured_stream,
                     ..
                 } => {
+                    let stream = *configured_stream && self.summary_max_tokens.is_none();
+                    let options = crate::compaction_options::output_options(
+                        *protocol,
+                        options,
+                        &self.model_name,
+                        self.summary_max_tokens,
+                    );
                     let headers = provider_headers(kind)?;
                     match protocol {
                         Protocol::ChatCompletions => {
@@ -256,8 +285,8 @@ impl Model for LuaModel<'_> {
                             adapter.reasoning_level = self.reasoning_level.clone();
                             adapter.thinking_format = self.thinking_format.clone();
                             adapter.requires_reasoning_content = self.requires_reasoning_content;
-                            adapter.stream = *stream;
-                            generate(&self.client, &mut adapter, &input, *stream, emit).await?
+                            adapter.stream = stream;
+                            generate(&self.client, &mut adapter, &input, stream, emit).await?
                         }
                         Protocol::OpenAIResponses => {
                             let mut adapter = OpenAIResponses::default();
@@ -266,8 +295,8 @@ impl Model for LuaModel<'_> {
                             adapter.headers = headers;
                             adapter.options = options.clone();
                             adapter.reasoning_level = self.reasoning_level.clone();
-                            adapter.stream = *stream;
-                            generate(&self.client, &mut adapter, &input, *stream, emit).await?
+                            adapter.stream = stream;
+                            generate(&self.client, &mut adapter, &input, stream, emit).await?
                         }
                         Protocol::AnthropicMessages => {
                             let mut adapter = AnthropicMessages::default();
@@ -276,8 +305,8 @@ impl Model for LuaModel<'_> {
                             adapter.headers = headers;
                             adapter.options = options.clone();
                             adapter.reasoning_level = self.reasoning_level.clone();
-                            adapter.stream = *stream;
-                            generate(&self.client, &mut adapter, &input, *stream, emit).await?
+                            adapter.stream = stream;
+                            generate(&self.client, &mut adapter, &input, stream, emit).await?
                         }
                     }
                 }

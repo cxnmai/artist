@@ -48,7 +48,7 @@ impl Adapter for ChatCompletions {
         }
         for entry in input.entries {
             match entry {
-                ContextEntry::User { text } => {
+                ContextEntry::User { text } | ContextEntry::Summary { text } => {
                     messages.push(json!({"role": "user", "content": text}))
                 }
                 ContextEntry::ToolResult {

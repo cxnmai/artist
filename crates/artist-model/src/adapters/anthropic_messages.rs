@@ -38,7 +38,7 @@ impl Adapter for AnthropicMessages {
         let mut messages: Vec<Value> = Vec::new();
         for entry in context.entries {
             match entry {
-                ContextEntry::User { text } => {
+                ContextEntry::User { text } | ContextEntry::Summary { text } => {
                     messages.push(json!({"role":"user","content":[{"type":"text","text":text}]}))
                 }
                 ContextEntry::ToolResult {

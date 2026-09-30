@@ -29,7 +29,9 @@ impl Adapter for OpenAIResponses {
         let mut input = Vec::new();
         for entry in context.entries {
             match entry {
-                ContextEntry::User { text } => input.push(json!({"role":"user","content":text})),
+                ContextEntry::User { text } | ContextEntry::Summary { text } => {
+                    input.push(json!({"role":"user","content":text}))
+                }
                 ContextEntry::ToolResult {
                     tool_call_id, text, ..
                 } => input.push(json!({
