@@ -1,5 +1,7 @@
 # Lua interface (buffered or streamed model responses)
 
+Automatic same-model context summarization is registered by `default.lua`. See [COMPACTION.md](COMPACTION.md) for Lua policy settings, custom callbacks, and replay compatibility.
+
 Run with `cargo run -p artist -- -p "first prompt" "second prompt" --config path/to/config.lua` (or repeat `-p`). Prompts run in order using one conversation. Use `--model model-id` to select a model, `--list-models` for IDs, or `--list-models-json` for the metadata registry. `--reasoning level` selects a supported reasoning level. No provider is configured by default. See `configs/mock-model.lua` for a working configuration for the local mock API.
 
 - `artist.provider({ name = "my-provider", models = {"model-a", "model-b"}, default_model = "model-a", adapter = "chat_completions", endpoint = "https://.../v1/chat/completions", auth = { bearer_env = "API_KEY" }, headers = { ["x-custom"] = "value" }, options = { temperature = 0.5 } })` registers one provider with multiple model IDs. `default_model` is optional if there is just one configured ID; otherwise choose with `--model`. `endpoint` defaults to OpenAI's endpoint. `auth.bearer_env` is resolved when making a request; header values may also be zero-argument Lua functions evaluated per request. See `configs/mock-model.lua` and `configs/opencode-go.lua`.
