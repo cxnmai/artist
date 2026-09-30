@@ -56,6 +56,9 @@ impl Conversation {
                     return None;
                 }
                 match entry {
+                    ContextEntry::Summary { text } => {
+                        Some(ContextEntry::User { text: text.clone() })
+                    }
                     ContextEntry::Assistant { blocks } => {
                         let blocks = blocks
                             .iter()
@@ -88,6 +91,10 @@ impl Conversation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContextEntry {
+    /// Synthetic checkpoint text, sent as a user message by model adapters.
+    Summary {
+        text: String,
+    },
     User {
         text: String,
     },

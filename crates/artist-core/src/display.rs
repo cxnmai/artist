@@ -42,7 +42,9 @@ pub enum DisplayEntry {
 impl From<&ContextEntry> for DisplayEntry {
     fn from(entry: &ContextEntry) -> Self {
         match entry {
-            ContextEntry::User { text } => Self::User { text: text.clone() },
+            ContextEntry::User { text } | ContextEntry::Summary { text } => {
+                Self::User { text: text.clone() }
+            }
             ContextEntry::ToolResult {
                 tool_call_id,
                 text,

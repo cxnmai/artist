@@ -1,5 +1,6 @@
 pub mod cancellation;
 pub mod compaction;
+pub mod compaction_text;
 pub mod context;
 pub mod context_usage;
 pub mod display;

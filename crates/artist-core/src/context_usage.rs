@@ -55,11 +55,11 @@ fn estimate_chars(chars: usize) -> u64 {
     (chars as u64).saturating_add(3) / 4
 }
 
-fn estimate_entry(entry: &ContextEntry) -> u64 {
+pub fn estimate_entry(entry: &ContextEntry) -> u64 {
     match entry {
-        ContextEntry::User { text } | ContextEntry::ToolResult { text, .. } => {
-            estimate_chars(text_chars(text))
-        }
+        ContextEntry::Summary { text }
+        | ContextEntry::User { text }
+        | ContextEntry::ToolResult { text, .. } => estimate_chars(text_chars(text)),
         ContextEntry::Assistant { blocks } => {
             let chars: usize = blocks
                 .iter()

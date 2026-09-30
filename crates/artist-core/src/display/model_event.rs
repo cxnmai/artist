@@ -43,7 +43,8 @@ pub enum DisplayModelEvent {
 }
 
 impl DisplayModelEvent {
-    pub(crate) fn from_model(event: ModelEvent) -> Option<Self> {
+    /// Strip native replay items when projecting internal events for a frontend.
+    pub fn from_model(event: ModelEvent) -> Option<Self> {
         Some(match event {
             ModelEvent::ProviderData { .. } => return None,
             ModelEvent::TextDelta { text } => Self::TextDelta { text },
