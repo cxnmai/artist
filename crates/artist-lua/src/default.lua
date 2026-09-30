@@ -1,3 +1,12 @@
+-- Automatic compaction uses the current model; configuration may replace this policy.
+artist.set_compaction({
+  enabled = true,
+  reserve_tokens = 16384,
+  keep_recent_tokens = 20000,
+  max_summary_tokens = 4096,
+  compact = artist.compaction.summarize,
+})
+
 artist.set_system_prompt(function(context)
   return "You are the language model " .. context.model_name
     .. " operating inside of the agentic harness 'Artist.'"
