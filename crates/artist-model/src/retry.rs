@@ -8,6 +8,8 @@ pub struct RetryPolicy {
     /// Additional attempts after the initial request; zero disables retries.
     pub max_retries: usize,
     pub initial_delay: Duration,
+    /// Multiplier applied for each subsequent retry.
+    pub backoff_multiplier: u32,
     /// If Retry-After exceeds this limit, return the response instead of retrying early.
     pub max_delay: Duration,
 }
@@ -16,7 +18,8 @@ impl Default for RetryPolicy {
     fn default() -> Self {
         Self {
             max_retries: 2,
-            initial_delay: Duration::from_millis(250),
+            initial_delay: Duration::from_secs(2),
+            backoff_multiplier: 5,
             max_delay: Duration::from_secs(30),
         }
     }
@@ -29,7 +32,10 @@ impl RetryPolicy {
         }
         let backoff = self
             .initial_delay
-            .saturating_mul(1_u32.checked_shl(retry.min(31) as u32).unwrap_or(u32::MAX))
+            .saturating_mul(
+                self.backoff_multiplier
+                    .saturating_pow(retry.try_into().unwrap_or(u32::MAX)),
+            )
             .min(self.max_delay);
         if let Some(value) = headers.and_then(|headers| headers.get("retry-after")) {
             let value = value.to_str().ok()?;
