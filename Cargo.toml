@@ -1,3 +1,3 @@
 [workspace]
-members = ["crates/artist-tools", "crates/artist-model", "crates/artist-core", "crates/artist-cli", "crates/artist-lua"]
+members = ["crates/artist-tools", "crates/artist-model", "crates/artist-core", "crates/artist-cli", "crates/artist-lua", "crates/artist-tui"]
 resolver = "3"
