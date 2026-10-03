@@ -15,4 +15,8 @@ Without configuration, the window opens with unset backend fields. Configuration
 
 The white-framed input box above the ribbon edits a local draft in `INS`, using the main background inside. It starts at one editable line (three rows including borders) and grows with newlines and soft-wrapped text, up to the available terminal height; longer drafts scroll to keep the cursor visible. Arrow keys move through the draft, including wrapped rows. Backspace/Delete, Home/End, and bracketed paste are supported. `NAV` preserves the draft without editing it.
 
-Shift-Enter inserts a newline. Enhanced keyboard reporting is requested so compatible terminals can distinguish it from Enter; Ctrl-J is a newline fallback for legacy terminals. Plain Enter intentionally does nothing—prompt submission, generation, chat, and the command palette are not wired yet. All color choices remain in `src/colors.rs`.
+Shift-Enter inserts a newline. Enhanced keyboard reporting is requested so compatible terminals can distinguish it from Enter; Ctrl-J is a newline fallback for legacy terminals. Enter sends a nonempty draft to the local chat and clears the editor. Messages are dummy UI entries only: no backend conversation updates, generation, or responses occur. Each wrapped message row uses the ribbon background across its full width.
+
+Chat scrolls within the area above the fixed input and ribbon. In `NAV`, `j`/`k` or arrows select message blocks, Page Up/Down scroll by viewport, `g` jumps to the first message, and `G` returns to the latest. The selected message is bold. Mouse-wheel scrolling also moves chat without moving the editor or ribbon. Drafts survive navigation; sending a message follows the latest output again.
+
+The command palette and real backend prompt submission are not wired yet. All color choices remain in `src/colors.rs`.

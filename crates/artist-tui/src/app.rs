@@ -7,6 +7,7 @@ use artist_core::engine::AgentEvent;
 
 use crate::actions::Action;
 use crate::backend::Backend;
+use crate::chat::Chat;
 use crate::input::InputBox;
 use crate::mode::Mode;
 
@@ -24,6 +25,7 @@ pub struct App {
     pub mode: Mode,
     pub status: Status,
     pub input: InputBox,
+    pub chat: Chat,
     backend: Option<Backend>,
 }
 
@@ -32,6 +34,7 @@ impl App {
         Self {
             mode: Mode::default(),
             input: InputBox::default(),
+            chat: Chat::default(),
             backend: None,
             status: Status {
                 cwd,
@@ -81,6 +84,9 @@ impl App {
             Action::SetMode(mode) => {
                 self.mode = mode;
                 self.input.set_active(matches!(mode, Mode::Insert));
+                if matches!(mode, Mode::Navigation) {
+                    self.chat.enter_navigation();
+                }
                 false
             }
             Action::EditInput(key) => {
@@ -93,6 +99,34 @@ impl App {
                 if matches!(self.mode, Mode::Insert) {
                     self.input.paste(text);
                 }
+                false
+            }
+            Action::SubmitDraft => {
+                if matches!(self.mode, Mode::Insert) {
+                    if let Some(text) = self.input.take_draft() {
+                        self.chat.push(text);
+                    }
+                }
+                false
+            }
+            Action::SelectMessage(direction) => {
+                self.chat.select(direction);
+                false
+            }
+            Action::ScrollChat(lines) => {
+                self.chat.scroll_by(lines);
+                false
+            }
+            Action::PageChat(direction) => {
+                self.chat.page(direction);
+                false
+            }
+            Action::ChatTop => {
+                self.chat.top();
+                false
+            }
+            Action::ChatBottom => {
+                self.chat.bottom();
                 false
             }
             Action::Quit => true,

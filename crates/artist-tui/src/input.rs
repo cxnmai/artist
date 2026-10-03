@@ -1,4 +1,4 @@
-//! Draft editing only: plain Enter intentionally does not submit or modify text.
+//! Draft editing; the app handles submission without invoking the backend.
 
 use std::cell::Cell;
 
@@ -71,6 +71,17 @@ impl InputBox {
     pub fn paste(&mut self, text: String) {
         self.editor
             .insert_str(text.replace("\r\n", "\n").replace('\r', "\n"));
+    }
+
+    pub fn take_draft(&mut self) -> Option<String> {
+        let text = self.editor.lines().join("\n");
+        if text.trim().is_empty() {
+            return None;
+        }
+        let active = self.active;
+        *self = Self::default();
+        self.set_active(active);
+        Some(text)
     }
 
     pub fn height(&self, width: u16, available: u16) -> u16 {

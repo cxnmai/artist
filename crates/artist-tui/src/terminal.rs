@@ -3,8 +3,8 @@
 use std::io;
 
 use crossterm::event::{
-    DisableBracketedPaste, EnableBracketedPaste, KeyboardEnhancementFlags,
-    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 
 pub struct Session {
@@ -21,6 +21,7 @@ impl Session {
         crossterm::execute!(
             io::stdout(),
             EnableBracketedPaste,
+            EnableMouseCapture,
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
         )?;
         Ok(session)
@@ -32,7 +33,8 @@ impl Drop for Session {
         let _ = crossterm::execute!(
             io::stdout(),
             PopKeyboardEnhancementFlags,
-            DisableBracketedPaste
+            DisableBracketedPaste,
+            DisableMouseCapture
         );
         ratatui::restore();
     }

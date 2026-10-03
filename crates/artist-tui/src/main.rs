@@ -2,6 +2,7 @@ mod actions;
 mod app;
 mod args;
 mod backend;
+mod chat;
 mod colors;
 mod components;
 mod input;
@@ -12,7 +13,7 @@ mod ui;
 
 use std::io;
 
-use crossterm::event::{Event, EventStream};
+use crossterm::event::{Event, EventStream, MouseEventKind};
 use futures_util::StreamExt;
 
 use app::App;
@@ -36,7 +37,11 @@ async fn run(terminal: &mut ratatui::DefaultTerminal, options: Options) -> io::R
     let mut initializing = true;
     let mut events = EventStream::new();
     loop {
-        terminal.draw(|frame| ui::render(frame, &app))?;
+        terminal.draw(|frame| {
+            let areas = ui::areas(frame.area(), &app);
+            app.chat.prepare(areas.chat.width, areas.chat.height);
+            ui::render(frame, &app, areas);
+        })?;
         // Lua stays on this thread; provider discovery never blocks keyboard input.
         tokio::select! {
             biased;
@@ -47,6 +52,11 @@ async fn run(terminal: &mut ratatui::DefaultTerminal, options: Options) -> io::R
                     }
                 }
                 Some(Ok(Event::Paste(text))) => { app.act(actions::Action::PasteInput(text)); },
+                Some(Ok(Event::Mouse(mouse))) => match mouse.kind {
+                    MouseEventKind::ScrollUp => { app.act(actions::Action::ScrollChat(-3)); },
+                    MouseEventKind::ScrollDown => { app.act(actions::Action::ScrollChat(3)); },
+                    _ => {},
+                },
                 Some(Ok(_)) => {}, // Resize redraws on the next iteration.
                 Some(Err(error)) => return Err(error),
                 None => return Ok(()),
