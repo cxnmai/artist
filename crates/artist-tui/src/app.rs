@@ -8,6 +8,7 @@ use artist_core::engine::AgentEvent;
 use crate::actions::Action;
 use crate::backend::Backend;
 use crate::chat::Chat;
+use crate::chat_block::ChatBlock;
 use crate::input::InputBox;
 use crate::mode::Mode;
 
@@ -104,7 +105,7 @@ impl App {
             Action::SubmitDraft => {
                 if matches!(self.mode, Mode::Insert) {
                     if let Some(text) = self.input.take_draft() {
-                        self.chat.push(text);
+                        self.chat.push(ChatBlock::UserMessage { text });
                     }
                 }
                 false

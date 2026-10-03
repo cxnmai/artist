@@ -17,6 +17,8 @@ The white-framed input box above the ribbon edits a local draft in `INS`, using 
 
 Shift-Enter inserts a newline. Enhanced keyboard reporting is requested so compatible terminals can distinguish it from Enter; Ctrl-J is a newline fallback for legacy terminals. Enter sends a nonempty draft to the local chat and clears the editor. Messages are dummy UI entries only: no backend conversation updates, generation, or responses occur. Each wrapped message row uses the ribbon background across its full width.
 
-Chat scrolls within the area above the fixed input and ribbon. In `NAV`, `j`/`k` or arrows select message blocks, Page Up/Down scroll by viewport, `g` jumps to the first message, and `G` returns to the latest. The selected message is bold. Mouse-wheel scrolling also moves chat without moving the editor or ribbon. Drafts survive navigation; sending a message follows the latest output again.
+Chat scrolls within the area above the fixed input and ribbon. In `NAV`, `j`/`k` or arrows select message blocks, Page Up/Down scroll by viewport, `g` jumps to the first message, and `G` returns to the latest. The selected user message is inverted across its full rows: light background, dark ribbon-colored text. Mouse-wheel scrolling also moves chat without moving the editor or ribbon. Drafts survive navigation; sending a message follows the latest output again.
+
+All navigation uses one typed `ChatBlock` list, with user-message, assistant-response, and tool-use variants. Only user messages are currently produced and rendered; response/tool integration is deferred. Future producers append through `Chat::push` so viewport measurements and navigation share the same source.
 
 The command palette and real backend prompt submission are not wired yet. All color choices remain in `src/colors.rs`.

@@ -1,9 +1,10 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use crate::chat::Chat;
+use crate::chat_block::ChatBlock;
 use crate::colors;
 
 pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
@@ -11,7 +12,10 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
         return;
     }
     let bottom = chat.scroll.saturating_add(usize::from(area.height));
-    for (index, (text, range)) in chat.messages.iter().zip(&chat.ranges).enumerate() {
+    for (index, (block, range)) in chat.blocks.iter().zip(&chat.ranges).enumerate() {
+        let ChatBlock::UserMessage { text } = block else {
+            continue; // Response/tool rendering will be added separately.
+        };
         if range.end <= chat.scroll || range.start >= bottom {
             continue;
         }
@@ -22,12 +26,15 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
             .saturating_sub(skipped)
             .min(usize::from(area.height) - top);
         let visible = Rect::new(area.x, area.y + top as u16, area.width, height as u16);
-        let mut style = Style::default()
-            .bg(colors::USER_MESSAGE_BACKGROUND)
-            .fg(colors::USER_MESSAGE_FOREGROUND);
-        if navigating && chat.selected == Some(index) {
-            style = style.add_modifier(Modifier::BOLD);
-        }
+        let style = if navigating && chat.selected == Some(index) {
+            Style::default()
+                .bg(colors::USER_MESSAGE_SELECTED_BACKGROUND)
+                .fg(colors::USER_MESSAGE_SELECTED_FOREGROUND)
+        } else {
+            Style::default()
+                .bg(colors::USER_MESSAGE_BACKGROUND)
+                .fg(colors::USER_MESSAGE_FOREGROUND)
+        };
         // Fill the complete row width, including whitespace after the message text.
         frame.render_widget(Block::default().style(style), visible);
         frame.render_widget(

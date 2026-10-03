@@ -3,6 +3,7 @@ mod app;
 mod args;
 mod backend;
 mod chat;
+mod chat_block;
 mod colors;
 mod components;
 mod input;

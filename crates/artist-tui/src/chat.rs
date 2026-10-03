@@ -3,9 +3,11 @@
 use ratatui::widgets::{Paragraph, Wrap};
 use std::ops::Range;
 
+use crate::chat_block::ChatBlock;
+
 #[derive(Default)]
 pub struct Chat {
-    pub messages: Vec<String>,
+    pub blocks: Vec<ChatBlock>,
     pub ranges: Vec<Range<usize>>,
     pub scroll: usize,
     pub selected: Option<usize>,
@@ -18,9 +20,9 @@ pub struct Chat {
 }
 
 impl Chat {
-    pub fn push(&mut self, text: String) {
-        self.messages.push(text);
-        self.selected = Some(self.messages.len() - 1);
+    pub fn push(&mut self, block: ChatBlock) {
+        self.blocks.push(block);
+        self.selected = Some(self.blocks.len() - 1);
         self.dirty = true;
         self.follow_latest = true;
     }
@@ -34,8 +36,8 @@ impl Chat {
         if self.dirty || self.width != width {
             self.ranges.clear();
             let mut start = 0;
-            for text in &self.messages {
-                let count = Paragraph::new(text.as_str())
+            for block in &self.blocks {
+                let count = Paragraph::new(block.text())
                     .wrap(Wrap { trim: false })
                     .line_count(width)
                     .max(1);
@@ -69,7 +71,7 @@ impl Chat {
     }
 
     pub fn select(&mut self, direction: i8) {
-        if self.messages.is_empty() {
+        if self.blocks.is_empty() {
             return;
         }
         let current = self
@@ -79,7 +81,7 @@ impl Chat {
         self.selected = Some(
             current
                 .saturating_add_signed(isize::from(direction))
-                .min(self.messages.len() - 1),
+                .min(self.blocks.len() - 1),
         );
         self.follow_latest = false;
         self.reveal_selected = true;
@@ -101,7 +103,7 @@ impl Chat {
 
     pub fn top(&mut self) {
         self.scroll = 0;
-        self.selected = if self.messages.is_empty() {
+        self.selected = if self.blocks.is_empty() {
             None
         } else {
             Some(0)
@@ -111,7 +113,7 @@ impl Chat {
     }
 
     pub fn bottom(&mut self) {
-        self.selected = self.messages.len().checked_sub(1);
+        self.selected = self.blocks.len().checked_sub(1);
         self.follow_latest = true;
         self.reveal_selected = false;
     }
