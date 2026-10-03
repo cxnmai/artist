@@ -73,11 +73,17 @@ impl InputBox {
             .insert_str(text.replace("\r\n", "\n").replace('\r', "\n"));
     }
 
-    pub fn take_draft(&mut self) -> Option<String> {
+    pub fn draft(&self) -> Option<String> {
         let text = self.editor.lines().join("\n");
         if text.trim().is_empty() {
-            return None;
+            None
+        } else {
+            Some(text)
         }
+    }
+
+    pub fn take_draft(&mut self) -> Option<String> {
+        let text = self.draft()?;
         let active = self.active;
         *self = Self::default();
         self.set_active(active);

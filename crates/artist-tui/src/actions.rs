@@ -7,6 +7,7 @@ pub enum Action {
     EditInput(KeyEvent),
     PasteInput(String),
     SubmitDraft,
+    Interrupt,
     SelectMessage(i8),
     ScrollChat(i32),
     PageChat(i32),
@@ -20,7 +21,7 @@ pub fn from_key(key: KeyEvent, mode: Mode) -> Option<Action> {
         return None;
     }
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        return Some(Action::Quit);
+        return Some(Action::Interrupt);
     }
     match (mode, key.code) {
         (_, KeyCode::Esc) => Some(Action::SetMode(Mode::Navigation)),

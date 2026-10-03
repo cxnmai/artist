@@ -1,7 +1,9 @@
 mod actions;
 mod app;
+mod app_backend;
 mod args;
 mod backend;
+mod backend_worker;
 mod chat;
 mod chat_block;
 mod colors;
@@ -27,7 +29,9 @@ async fn main() -> io::Result<()> {
         return Ok(());
     };
     let mut session = terminal::Session::new()?;
-    run(&mut session.terminal, options).await
+    tokio::task::LocalSet::new()
+        .run_until(run(&mut session.terminal, options))
+        .await
 }
 
 async fn run(terminal: &mut ratatui::DefaultTerminal, options: Options) -> io::Result<()> {
@@ -37,6 +41,7 @@ async fn run(terminal: &mut ratatui::DefaultTerminal, options: Options) -> io::R
     tokio::pin!(initialization);
     let mut initializing = true;
     let mut events = EventStream::new();
+    let (backend_events, mut incoming) = tokio::sync::mpsc::unbounded_channel();
     loop {
         terminal.draw(|frame| {
             let areas = ui::areas(frame.area(), &app);
@@ -62,9 +67,10 @@ async fn run(terminal: &mut ratatui::DefaultTerminal, options: Options) -> io::R
                 Some(Err(error)) => return Err(error),
                 None => return Ok(()),
             },
+            Some(batch) = incoming.recv() => app.apply_events(batch),
             result = &mut initialization, if initializing => {
                 initializing = false;
-                app.attach_backend(result.map_err(io::Error::other)?);
+                app.attach_backend(result.map_err(io::Error::other)?, backend_events.clone());
             }
         }
     }

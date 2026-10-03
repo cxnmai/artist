@@ -2,13 +2,12 @@
 
 use std::path::PathBuf;
 
+use artist_core::cancellation::CancellationToken;
 use artist_core::context_usage::ContextUsage;
-use artist_core::engine::AgentEvent;
 
 use crate::actions::Action;
-use crate::backend::Backend;
+use crate::backend_worker::Connection;
 use crate::chat::Chat;
-use crate::chat_block::ChatBlock;
 use crate::input::InputBox;
 use crate::mode::Mode;
 
@@ -20,6 +19,7 @@ pub struct Status {
     pub context_usage: Option<ContextUsage>,
     pub cwd: PathBuf,
     pub loading: bool,
+    pub busy: bool,
 }
 
 pub struct App {
@@ -27,7 +27,8 @@ pub struct App {
     pub status: Status,
     pub input: InputBox,
     pub chat: Chat,
-    backend: Option<Backend>,
+    pub(super) backend: Option<Connection>,
+    pub(super) active_turn: Option<CancellationToken>,
 }
 
 impl App {
@@ -37,45 +38,17 @@ impl App {
             input: InputBox::default(),
             chat: Chat::default(),
             backend: None,
+            active_turn: None,
             status: Status {
                 cwd,
                 loading,
+                busy: false,
                 provider: None,
                 model: None,
                 reasoning: None,
                 context_window: None,
                 context_usage: None,
             },
-        }
-    }
-
-    pub fn attach_backend(&mut self, backend: Option<Backend>) {
-        self.backend = backend;
-        self.status.loading = false;
-        if let Some(backend) = &self.backend {
-            self.apply_events(backend.initial_events());
-        }
-    }
-
-    pub fn apply_events(&mut self, events: Vec<AgentEvent>) {
-        for event in events {
-            match event {
-                AgentEvent::ModelInfo {
-                    provider,
-                    model,
-                    reasoning_level,
-                    context_window,
-                    ..
-                } => {
-                    self.status.provider = Some(provider);
-                    self.status.model = Some(model);
-                    self.status.reasoning = reasoning_level;
-                    self.status.context_window = context_window;
-                    self.status.context_usage = None;
-                }
-                AgentEvent::ContextUsage { usage } => self.status.context_usage = Some(usage),
-                _ => {} // Chat events are outside the ribbon's scope.
-            }
         }
     }
 
@@ -103,13 +76,16 @@ impl App {
                 false
             }
             Action::SubmitDraft => {
-                if matches!(self.mode, Mode::Insert) {
-                    if let Some(text) = self.input.take_draft() {
-                        self.chat.push(ChatBlock::UserMessage { text });
-                    }
-                }
+                self.submit();
                 false
             }
+            Action::Interrupt => match &self.active_turn {
+                Some(token) if !token.is_cancelled() => {
+                    token.cancel();
+                    false
+                }
+                _ => true,
+            },
             Action::SelectMessage(direction) => {
                 self.chat.select(direction);
                 false

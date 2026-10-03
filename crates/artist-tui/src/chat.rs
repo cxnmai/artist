@@ -21,10 +21,13 @@ pub struct Chat {
 
 impl Chat {
     pub fn push(&mut self, block: ChatBlock) {
+        let follow = self.follow_latest || self.blocks.is_empty();
         self.blocks.push(block);
-        self.selected = Some(self.blocks.len() - 1);
+        if follow {
+            self.selected = Some(self.blocks.len() - 1);
+        }
         self.dirty = true;
-        self.follow_latest = true;
+        self.follow_latest = follow;
     }
 
     pub fn prepare(&mut self, width: u16, height: u16) {
@@ -34,9 +37,14 @@ impl Chat {
         }
         self.height = usize::from(height);
         if self.dirty || self.width != width {
-            self.ranges.clear();
-            let mut start = 0;
-            for block in &self.blocks {
+            if self.width != width {
+                self.ranges.clear();
+            }
+            let mut start = self
+                .ranges
+                .last()
+                .map_or(0, |range| range.end.saturating_add(1));
+            for block in &self.blocks[self.ranges.len()..] {
                 let count = Paragraph::new(block.text())
                     .wrap(Wrap { trim: false })
                     .line_count(width)
