@@ -8,3 +8,5 @@ pub const RIBBON_FOREGROUND: Color = Color::Rgb(0xEE, 0xEE, 0xEE);
 pub const INPUT_BACKGROUND: Color = BACKGROUND;
 pub const INPUT_FOREGROUND: Color = Color::Rgb(0xEE, 0xEE, 0xEE);
 pub const INPUT_BORDER: Color = Color::Rgb(0xFF, 0xFF, 0xFF);
+pub const USER_MESSAGE_BACKGROUND: Color = RIBBON_BACKGROUND;
+pub const USER_MESSAGE_FOREGROUND: Color = RIBBON_FOREGROUND;
