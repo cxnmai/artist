@@ -1,6 +1,7 @@
-//! Backend ownership and typed status events; no model generation yet.
+//! Configured backend ownership and typed events shared with the frontend.
 
-use std::path::Path;
+use artist_core::cancellation::CancellationToken;
+use std::path::{Path, PathBuf};
 
 use artist_core::context::Conversation;
 use artist_core::engine::AgentEvent;
@@ -10,8 +11,8 @@ use artist_lua::model_info::ModelInfo;
 use crate::args::Options;
 
 pub struct Backend {
-    // Keep the configured runtime alive for future prompt handling.
-    _runtime: Runtime,
+    runtime: Runtime,
+    cwd: PathBuf,
     conversation: Conversation,
     provider: String,
     model: ModelInfo,
@@ -53,12 +54,46 @@ impl Backend {
         let mut conversation = Conversation::default();
         runtime.configure_conversation(&mut conversation, cwd, &selected)?;
         Ok(Some(Self {
-            _runtime: runtime,
+            runtime,
+            cwd: cwd.to_owned(),
             conversation,
             provider,
             model,
             reasoning,
         }))
+    }
+
+    pub async fn run_prompt(
+        &mut self,
+        prompt: String,
+        cancellation: &CancellationToken,
+        emit: impl FnMut(Vec<AgentEvent>),
+    ) {
+        let mapped = self.reasoning.as_deref().map(|level| {
+            self.model
+                .reasoning_map
+                .as_ref()
+                .and_then(|map| map.get(level))
+                .map(String::as_str)
+                .unwrap_or(level)
+        });
+        // Runtime emits its terminal event on both success and failure.
+        let _ = self
+            .runtime
+            .run(
+                &mut self.conversation,
+                prompt,
+                &self.model.id,
+                self.model.adapter.as_deref(),
+                mapped,
+                self.model.thinking_format.as_deref(),
+                self.model.requires_reasoning_content.unwrap_or(false),
+                self.model.context_window,
+                &self.cwd,
+                cancellation,
+                emit,
+            )
+            .await;
     }
 
     pub fn initial_events(&self) -> Vec<AgentEvent> {
