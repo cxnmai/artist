@@ -22,7 +22,12 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     ])
     .areas(area);
     frame.render_widget(
-        Paragraph::new(format!(" {}", app.mode.label())).style(style),
+        Paragraph::new(format!(
+            " {}{}",
+            app.mode.label(),
+            if app.status.busy { "*" } else { " " }
+        ))
+        .style(style),
         mode,
     );
     frame.render_widget(

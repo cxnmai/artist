@@ -13,8 +13,18 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
     }
     let bottom = chat.scroll.saturating_add(usize::from(area.height));
     for (index, (block, range)) in chat.blocks.iter().zip(&chat.ranges).enumerate() {
-        let ChatBlock::UserMessage { text } = block else {
-            continue; // Response/tool rendering will be added separately.
+        let (text, foreground, background) = match block {
+            ChatBlock::UserMessage { text } => (
+                text,
+                colors::USER_MESSAGE_FOREGROUND,
+                colors::USER_MESSAGE_BACKGROUND,
+            ),
+            ChatBlock::RawJson { text } => (
+                text,
+                colors::RAW_JSON_FOREGROUND,
+                colors::RAW_JSON_BACKGROUND,
+            ),
+            _ => continue, // Normalized response/tool rendering is still deferred.
         };
         if range.end <= chat.scroll || range.start >= bottom {
             continue;
@@ -27,13 +37,9 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
             .min(usize::from(area.height) - top);
         let visible = Rect::new(area.x, area.y + top as u16, area.width, height as u16);
         let style = if navigating && chat.selected == Some(index) {
-            Style::default()
-                .bg(colors::USER_MESSAGE_SELECTED_BACKGROUND)
-                .fg(colors::USER_MESSAGE_SELECTED_FOREGROUND)
+            Style::default().bg(foreground).fg(background)
         } else {
-            Style::default()
-                .bg(colors::USER_MESSAGE_BACKGROUND)
-                .fg(colors::USER_MESSAGE_FOREGROUND)
+            Style::default().bg(background).fg(foreground)
         };
         // Fill the complete row width, including whitespace after the message text.
         frame.render_widget(Block::default().style(style), visible);
