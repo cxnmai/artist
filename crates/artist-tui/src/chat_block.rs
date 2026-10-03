@@ -1,26 +1,15 @@
 //! One typed source for every navigable transcript block.
-//! Responses and thinking are typed text blocks; tool events retain JSON presentation.
+//! Tools use optional compact/expanded presentation with JSON fallback.
+
+use crate::tool_view::ToolView;
 
 pub enum ChatBlock {
-    UserMessage {
-        text: String,
-    },
-    RawJson {
-        text: String,
-    },
-    Notice {
-        text: String,
-    },
-    ThinkingTrace {
-        text: String,
-    },
-    AssistantResponse {
-        text: String,
-    },
-    #[allow(dead_code)]
-    ToolUse {
-        text: String,
-    },
+    UserMessage { text: String },
+    RawJson { text: String },
+    Notice { text: String },
+    ThinkingTrace { text: String },
+    AssistantResponse { text: String },
+    ToolUse { view: ToolView },
 }
 
 impl ChatBlock {
@@ -30,8 +19,15 @@ impl ChatBlock {
             | Self::RawJson { text }
             | Self::Notice { text }
             | Self::ThinkingTrace { text }
-            | Self::AssistantResponse { text }
-            | Self::ToolUse { text } => text,
+            | Self::AssistantResponse { text } => text,
+            Self::ToolUse { view } => view.text(false),
+        }
+    }
+
+    pub fn text_for(&self, expanded: bool) -> &str {
+        match self {
+            Self::ToolUse { view } => view.text(expanded),
+            _ => self.text(),
         }
     }
 
@@ -41,8 +37,8 @@ impl ChatBlock {
             | Self::RawJson { text }
             | Self::Notice { text }
             | Self::ThinkingTrace { text }
-            | Self::AssistantResponse { text }
-            | Self::ToolUse { text } => text,
+            | Self::AssistantResponse { text } => text,
+            Self::ToolUse { view } => &mut view.compact,
         }
     }
 }

@@ -30,6 +30,7 @@ impl App {
             match event {
                 AgentEvent::User { text } => {
                     self.response.reset();
+                    self.tools.reset();
                     self.chat.push(ChatBlock::UserMessage { text });
                 }
                 AgentEvent::Model {
@@ -47,10 +48,8 @@ impl App {
                     entry: DisplayEntry::Assistant { blocks },
                 } => {
                     let tools = self.response.commit(&mut self.chat, blocks);
-                    if !tools.is_empty() {
-                        self.push_tool_json(AgentEvent::Assistant {
-                            entry: DisplayEntry::Assistant { blocks: tools },
-                        });
+                    for tool in tools {
+                        self.tools.call(&mut self.chat, tool);
                     }
                 }
                 AgentEvent::ModelInfo {
@@ -70,8 +69,21 @@ impl App {
                 AgentEvent::Model {
                     event: DisplayModelEvent::Usage { .. } | DisplayModelEvent::Finished { .. },
                 } => {}
-                event @ AgentEvent::Model { .. } | event @ AgentEvent::ToolResult { .. } => {
-                    self.push_tool_json(event)
+                AgentEvent::Model { event } => {
+                    let id = match &event {
+                        DisplayModelEvent::ToolCallStart { id, .. }
+                        | DisplayModelEvent::ToolCallArgumentsDelta { id, .. }
+                        | DisplayModelEvent::ToolCallEnd { id } => id,
+                        _ => continue,
+                    };
+                    self.tools.input_event(
+                        &mut self.chat,
+                        id,
+                        serde_json::to_string(&event).expect("tool events serialize"),
+                    );
+                }
+                AgentEvent::ToolResult { entry, ui } => {
+                    self.tools.result(&mut self.chat, entry, ui)
                 }
                 AgentEvent::Done => self.end_turn(),
                 AgentEvent::Cancelled => {
@@ -96,16 +108,11 @@ impl App {
         }
     }
 
-    fn push_tool_json(&mut self, event: AgentEvent) {
-        self.chat.push(ChatBlock::RawJson {
-            text: serde_json::to_string(&event).expect("tool events serialize"),
-        });
-    }
-
     fn end_turn(&mut self) {
         self.active_turn = None;
         self.status.busy = false;
         self.response.reset();
+        self.tools.reset();
     }
 
     pub(super) fn submit(&mut self) {

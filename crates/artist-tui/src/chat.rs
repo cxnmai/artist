@@ -17,6 +17,7 @@ pub struct Chat {
     dirty: bool,
     follow_latest: bool,
     reveal_selected: bool,
+    expanded: Option<usize>,
 }
 
 impl Chat {
@@ -41,12 +42,25 @@ impl Chat {
         self.invalidate(index);
     }
 
+    pub fn update(&mut self, index: usize, update: impl FnOnce(&mut ChatBlock)) {
+        update(&mut self.blocks[index]);
+        self.invalidate(index);
+    }
+
     fn invalidate(&mut self, index: usize) {
         self.ranges.truncate(index);
         self.dirty = true;
     }
 
-    pub fn prepare(&mut self, width: u16, height: u16) {
+    pub fn prepare(&mut self, width: u16, height: u16, navigating: bool) {
+        let expanded = if navigating { self.selected } else { None };
+        if self.expanded != expanded {
+            for index in [self.expanded, expanded].into_iter().flatten() {
+                self.invalidate(index);
+            }
+            self.expanded = expanded;
+            self.reveal_selected = navigating;
+        }
         let resized = self.width != width || self.height != usize::from(height);
         if resized && !self.follow_latest && self.selected.is_some() {
             self.reveal_selected = true;
@@ -60,8 +74,8 @@ impl Chat {
                 .ranges
                 .last()
                 .map_or(0, |range| range.end.saturating_add(1));
-            for block in &self.blocks[self.ranges.len()..] {
-                let count = Paragraph::new(block.text())
+            for (index, block) in self.blocks.iter().enumerate().skip(self.ranges.len()) {
+                let count = Paragraph::new(block.text_for(self.expanded == Some(index)))
                     .wrap(Wrap { trim: false })
                     .line_count(width)
                     .max(1);
@@ -116,8 +130,17 @@ impl Chat {
             .scroll
             .saturating_add_signed(lines as isize)
             .min(self.max_scroll());
-        self.selected = None;
-        self.follow_latest = self.scroll == self.max_scroll();
+        let within_expanded_tool = self.expanded.is_some_and(|index| {
+            matches!(self.blocks.get(index), Some(ChatBlock::ToolUse { .. }))
+                && self
+                    .ranges
+                    .get(index)
+                    .is_some_and(|range| range.contains(&self.scroll))
+        });
+        if !within_expanded_tool {
+            self.selected = None;
+        }
+        self.follow_latest = !within_expanded_tool && self.scroll == self.max_scroll();
         self.reveal_selected = false;
     }
 

@@ -13,24 +13,17 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
     }
     let bottom = chat.scroll.saturating_add(usize::from(area.height));
     for (index, (block, range)) in chat.blocks.iter().zip(&chat.ranges).enumerate() {
-        let (text, foreground, background) = match block {
-            ChatBlock::UserMessage { text } => (
-                text,
+        let text = block.text_for(navigating && chat.selected == Some(index));
+        let (foreground, background) = match block {
+            ChatBlock::UserMessage { .. } => (
                 colors::USER_MESSAGE_FOREGROUND,
                 colors::USER_MESSAGE_BACKGROUND,
             ),
-            ChatBlock::RawJson { text } => (
-                text,
-                colors::RAW_JSON_FOREGROUND,
-                colors::RAW_JSON_BACKGROUND,
-            ),
-            ChatBlock::AssistantResponse { text } | ChatBlock::Notice { text } => {
-                (text, colors::OUTPUT_FOREGROUND, colors::BACKGROUND)
-            }
-            ChatBlock::ThinkingTrace { text } => {
-                (text, colors::THINKING_FOREGROUND, colors::BACKGROUND)
-            }
-            _ => continue, // Dedicated tool rendering is still deferred.
+            ChatBlock::RawJson { .. } => (colors::RAW_JSON_FOREGROUND, colors::RAW_JSON_BACKGROUND),
+            ChatBlock::AssistantResponse { .. }
+            | ChatBlock::Notice { .. }
+            | ChatBlock::ToolUse { .. } => (colors::OUTPUT_FOREGROUND, colors::BACKGROUND),
+            ChatBlock::ThinkingTrace { .. } => (colors::THINKING_FOREGROUND, colors::BACKGROUND),
         };
         if range.end <= chat.scroll || range.start >= bottom {
             continue;
@@ -53,7 +46,7 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
         // Fill the complete row width, including whitespace after the message text.
         frame.render_widget(Block::default().style(style), visible);
         frame.render_widget(
-            Paragraph::new(text.as_str())
+            Paragraph::new(text)
                 .style(style)
                 .wrap(Wrap { trim: false })
                 .scroll((skipped.min(usize::from(u16::MAX)) as u16, 0)),
