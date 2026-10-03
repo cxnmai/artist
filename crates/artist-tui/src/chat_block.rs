@@ -1,5 +1,5 @@
 //! One typed source for every navigable transcript block.
-//! Backend events temporarily use raw JSON; normalized response/tool UI is deferred.
+//! Responses and thinking are typed text blocks; tools/debug events retain JSON presentation.
 
 pub enum ChatBlock {
     UserMessage {
@@ -8,7 +8,9 @@ pub enum ChatBlock {
     RawJson {
         text: String,
     },
-    #[allow(dead_code)]
+    ThinkingTrace {
+        text: String,
+    },
     AssistantResponse {
         text: String,
     },
@@ -23,6 +25,17 @@ impl ChatBlock {
         match self {
             Self::UserMessage { text }
             | Self::RawJson { text }
+            | Self::ThinkingTrace { text }
+            | Self::AssistantResponse { text }
+            | Self::ToolUse { text } => text,
+        }
+    }
+
+    pub fn text_mut(&mut self) -> &mut String {
+        match self {
+            Self::UserMessage { text }
+            | Self::RawJson { text }
+            | Self::ThinkingTrace { text }
             | Self::AssistantResponse { text }
             | Self::ToolUse { text } => text,
         }

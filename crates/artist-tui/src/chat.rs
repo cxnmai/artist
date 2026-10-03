@@ -20,7 +20,7 @@ pub struct Chat {
 }
 
 impl Chat {
-    pub fn push(&mut self, block: ChatBlock) {
+    pub fn push(&mut self, block: ChatBlock) -> usize {
         let follow = self.follow_latest || self.blocks.is_empty();
         self.blocks.push(block);
         if follow {
@@ -28,6 +28,22 @@ impl Chat {
         }
         self.dirty = true;
         self.follow_latest = follow;
+        self.blocks.len() - 1
+    }
+
+    pub fn append(&mut self, index: usize, text: &str) {
+        self.blocks[index].text_mut().push_str(text);
+        self.invalidate(index);
+    }
+
+    pub fn replace(&mut self, index: usize, block: ChatBlock) {
+        self.blocks[index] = block;
+        self.invalidate(index);
+    }
+
+    fn invalidate(&mut self, index: usize) {
+        self.ranges.truncate(index);
+        self.dirty = true;
     }
 
     pub fn prepare(&mut self, width: u16, height: u16) {
