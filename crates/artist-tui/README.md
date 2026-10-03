@@ -13,4 +13,6 @@ Without configuration, the window opens with unset backend fields. Configuration
 - Esc switches to `NAV`; `i` returns to `INS`.
 - `q` quits in `NAV`; Ctrl-C quits anywhere.
 
-Input editing, generation, chat, and the command palette are not wired yet. All color choices remain in `src/colors.rs`.
+The white input box above the ribbon edits a local draft in `INS`. It starts at one line and grows with newlines and soft-wrapped text, up to the available terminal height; longer drafts scroll to keep the cursor visible. Arrow keys move through the draft, including wrapped rows. Backspace/Delete, Home/End, and bracketed paste are supported. `NAV` preserves the draft without editing it.
+
+Shift-Enter inserts a newline. Enhanced keyboard reporting is requested so compatible terminals can distinguish it from Enter; Ctrl-J is a newline fallback for legacy terminals. Plain Enter intentionally does nothing—prompt submission, generation, chat, and the command palette are not wired yet. All color choices remain in `src/colors.rs`.

@@ -7,6 +7,7 @@ use artist_core::engine::AgentEvent;
 
 use crate::actions::Action;
 use crate::backend::Backend;
+use crate::input::InputBox;
 use crate::mode::Mode;
 
 pub struct Status {
@@ -22,6 +23,7 @@ pub struct Status {
 pub struct App {
     pub mode: Mode,
     pub status: Status,
+    pub input: InputBox,
     backend: Option<Backend>,
 }
 
@@ -29,6 +31,7 @@ impl App {
     pub fn new(cwd: PathBuf, loading: bool) -> Self {
         Self {
             mode: Mode::default(),
+            input: InputBox::default(),
             backend: None,
             status: Status {
                 cwd,
@@ -77,6 +80,19 @@ impl App {
         match action {
             Action::SetMode(mode) => {
                 self.mode = mode;
+                self.input.set_active(matches!(mode, Mode::Insert));
+                false
+            }
+            Action::EditInput(key) => {
+                if matches!(self.mode, Mode::Insert) {
+                    self.input.key(key);
+                }
+                false
+            }
+            Action::PasteInput(text) => {
+                if matches!(self.mode, Mode::Insert) {
+                    self.input.paste(text);
+                }
                 false
             }
             Action::Quit => true,

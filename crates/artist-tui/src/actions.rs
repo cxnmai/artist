@@ -4,11 +4,13 @@ use crate::mode::Mode;
 
 pub enum Action {
     SetMode(Mode),
+    EditInput(KeyEvent),
+    PasteInput(String),
     Quit,
 }
 
 pub fn from_key(key: KeyEvent, mode: Mode) -> Option<Action> {
-    if key.kind != KeyEventKind::Press {
+    if key.kind == KeyEventKind::Release {
         return None;
     }
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -20,6 +22,7 @@ pub fn from_key(key: KeyEvent, mode: Mode) -> Option<Action> {
             Some(Action::SetMode(Mode::Insert))
         }
         (Mode::Navigation, KeyCode::Char('q')) if key.modifiers.is_empty() => Some(Action::Quit),
+        (Mode::Insert, _) => Some(Action::EditInput(key)),
         _ => None,
     }
 }

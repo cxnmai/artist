@@ -4,7 +4,10 @@ mod args;
 mod backend;
 mod colors;
 mod components;
+mod input;
+mod input_layout;
 mod mode;
+mod terminal;
 mod ui;
 
 use std::io;
@@ -21,10 +24,8 @@ async fn main() -> io::Result<()> {
     let Some(options) = Options::parse()? else {
         return Ok(());
     };
-    let mut terminal = ratatui::init();
-    let result = run(&mut terminal, options).await;
-    ratatui::restore();
-    result
+    let mut session = terminal::Session::new()?;
+    run(&mut session.terminal, options).await
 }
 
 async fn run(terminal: &mut ratatui::DefaultTerminal, options: Options) -> io::Result<()> {
@@ -45,6 +46,7 @@ async fn run(terminal: &mut ratatui::DefaultTerminal, options: Options) -> io::R
                         if app.act(action) { return Ok(()); }
                     }
                 }
+                Some(Ok(Event::Paste(text))) => { app.act(actions::Action::PasteInput(text)); },
                 Some(Ok(_)) => {}, // Resize redraws on the next iteration.
                 Some(Err(error)) => return Err(error),
                 None => return Ok(()),
