@@ -1,6 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use crate::chat::Chat;
@@ -24,7 +24,13 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
                 colors::RAW_JSON_FOREGROUND,
                 colors::RAW_JSON_BACKGROUND,
             ),
-            _ => continue, // Normalized response/tool rendering is still deferred.
+            ChatBlock::AssistantResponse { text } => {
+                (text, colors::OUTPUT_FOREGROUND, colors::BACKGROUND)
+            }
+            ChatBlock::ThinkingTrace { text } => {
+                (text, colors::THINKING_FOREGROUND, colors::BACKGROUND)
+            }
+            _ => continue, // Dedicated tool rendering is still deferred.
         };
         if range.end <= chat.scroll || range.start >= bottom {
             continue;
@@ -36,11 +42,14 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
             .saturating_sub(skipped)
             .min(usize::from(area.height) - top);
         let visible = Rect::new(area.x, area.y + top as u16, area.width, height as u16);
-        let style = if navigating && chat.selected == Some(index) {
+        let mut style = if navigating && chat.selected == Some(index) {
             Style::default().bg(foreground).fg(background)
         } else {
             Style::default().bg(background).fg(foreground)
         };
+        if matches!(block, ChatBlock::ThinkingTrace { .. }) {
+            style = style.add_modifier(Modifier::ITALIC);
+        }
         // Fill the complete row width, including whitespace after the message text.
         frame.render_widget(Block::default().style(style), visible);
         frame.render_widget(

@@ -11,6 +11,7 @@ mod components;
 mod input;
 mod input_layout;
 mod mode;
+mod response_view;
 mod terminal;
 mod ui;
 

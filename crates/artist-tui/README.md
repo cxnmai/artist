@@ -20,8 +20,10 @@ Shift-Enter inserts a newline. Enhanced keyboard reporting is requested so compa
 
 Chat scrolls within the area above the fixed input and ribbon. In `NAV`, `j`/`k` or arrows select message blocks, Page Up/Down scroll by viewport, `g` jumps to the first message, and `G` returns to the latest. The selected user message is inverted across its full rows: light background, dark ribbon-colored text. Mouse-wheel scrolling also moves chat without moving the editor or ribbon. Drafts survive navigation; sending a message follows the latest output again.
 
-All navigation uses one typed `ChatBlock` list. User events create styled user blocks; all other frontend-safe backend events are temporarily dumped as raw JSON blocks, including streamed deltas, tool events, committed assistant messages, usage, compaction, errors, and terminal events. This is JSON presentation of typed `AgentEvent` batches, not raw provider HTTP payloads or hidden replay data. Incoming output does not pull the viewport back to the bottom while navigating older blocks.
+All navigation uses one typed `ChatBlock` list. User events create styled user blocks. Thinking deltas form dark-gray italic traces; response deltas form regular white text blocks. Deltas are appended in place, and the final committed assistant message reconciles those blocks rather than displaying the response a second time. Partial output remains visible on cancellation or failure.
+
+Tool events/results and remaining debug metadata (usage, compaction, errors, terminal events) still use JSON presentation. This is serialization of typed `AgentEvent` batches, not JSON decoding, raw provider HTTP payloads, or hidden replay data. Incoming output does not pull the viewport back to the bottom while navigating older blocks.
 
 One Tokio local task owns the non-Send Lua runtime and conversation. It executes tools, streams model output, retries transient requests, and performs configured compaction through the same backend as the CLI. Backend/UI channels carry typed event vectors, not JSON. The UI remains responsive during asynchronous model/tool work. Leaving the TUI aborts outstanding backend work; synchronous Lua/file operations cannot be preempted until they yield.
 
-Normalized response/tool rendering, the command palette, and session persistence remain deferred. All color choices remain in `src/colors.rs`.
+Dedicated tool rendering, the command palette, and session persistence remain deferred. All color choices remain in `src/colors.rs`.

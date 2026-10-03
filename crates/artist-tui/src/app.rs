@@ -10,6 +10,7 @@ use crate::backend_worker::Connection;
 use crate::chat::Chat;
 use crate::input::InputBox;
 use crate::mode::Mode;
+use crate::response_view::ResponseView;
 
 pub struct Status {
     pub provider: Option<String>,
@@ -29,6 +30,7 @@ pub struct App {
     pub chat: Chat,
     pub(super) backend: Option<Connection>,
     pub(super) active_turn: Option<CancellationToken>,
+    pub(super) response: ResponseView,
 }
 
 impl App {
@@ -39,6 +41,7 @@ impl App {
             chat: Chat::default(),
             backend: None,
             active_turn: None,
+            response: ResponseView::default(),
             status: Status {
                 cwd,
                 loading,

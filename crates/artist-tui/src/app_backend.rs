@@ -1,6 +1,7 @@
-//! Typed backend events update status; their JSON presentation lives only in the TUI.
+//! Typed backend events update status and response blocks; only tools/debug events use JSON.
 
 use artist_core::cancellation::CancellationToken;
+use artist_core::display::{DisplayEntry, DisplayModelEvent};
 use artist_core::engine::AgentEvent;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -9,6 +10,7 @@ use crate::backend::Backend;
 use crate::backend_worker::Connection;
 use crate::chat_block::ChatBlock;
 use crate::mode::Mode;
+use crate::response_view::OutputKind;
 
 impl App {
     pub fn attach_backend(
@@ -25,11 +27,53 @@ impl App {
 
     pub fn apply_events(&mut self, events: Vec<AgentEvent>) {
         for event in events {
-            let text = serde_json::to_string(&event).expect("agent events serialize");
+            let json = if matches!(
+                &event,
+                AgentEvent::User { .. }
+                    | AgentEvent::Model {
+                        event: DisplayModelEvent::TextDelta { .. }
+                            | DisplayModelEvent::ThinkingDelta { .. }
+                    }
+                    | AgentEvent::Assistant {
+                        entry: DisplayEntry::Assistant { .. }
+                    }
+            ) {
+                None
+            } else {
+                Some(serde_json::to_string(&event).expect("agent events serialize"))
+            };
             match event {
                 AgentEvent::User { text } => {
                     // The authoritative backend user event creates the band once, not twice.
+                    self.response.reset();
                     self.chat.push(ChatBlock::UserMessage { text });
+                    continue;
+                }
+                AgentEvent::Model {
+                    event: DisplayModelEvent::TextDelta { text },
+                } => {
+                    self.response.delta(&mut self.chat, OutputKind::Text, text);
+                    continue;
+                }
+                AgentEvent::Model {
+                    event: DisplayModelEvent::ThinkingDelta { text },
+                } => {
+                    self.response
+                        .delta(&mut self.chat, OutputKind::Thinking, text);
+                    continue;
+                }
+                AgentEvent::Assistant {
+                    entry: DisplayEntry::Assistant { blocks },
+                } => {
+                    let tools = self.response.commit(&mut self.chat, blocks);
+                    if !tools.is_empty() {
+                        let event = AgentEvent::Assistant {
+                            entry: DisplayEntry::Assistant { blocks: tools },
+                        };
+                        self.chat.push(ChatBlock::RawJson {
+                            text: serde_json::to_string(&event).expect("tool events serialize"),
+                        });
+                    }
                     continue;
                 }
                 AgentEvent::ModelInfo {
@@ -49,10 +93,13 @@ impl App {
                 AgentEvent::Done | AgentEvent::Cancelled | AgentEvent::Error { .. } => {
                     self.active_turn = None;
                     self.status.busy = false;
+                    self.response.reset();
                 }
                 _ => {}
             }
-            self.chat.push(ChatBlock::RawJson { text });
+            self.chat.push(ChatBlock::RawJson {
+                text: json.expect("unformatted event has a JSON presentation"),
+            });
         }
     }
 
