@@ -1,4 +1,5 @@
 use crate::registry::Registry;
+use artist_core::tool_ui::ToolUi;
 use artist_core::tools::{ToolExecutor, ToolOutput};
 use artist_tools::executor::BuiltinTools;
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
@@ -48,10 +49,20 @@ impl ToolExecutor for LuaTools<'_> {
                 if let mlua::Value::String(text) = value {
                     return Ok(ToolOutput::success(text.to_str()?.to_owned()));
                 }
+                // Presentation cannot turn an already completed tool into a model-facing error.
+                let ui = if let LuaValue::Table(table) = &value {
+                    self.lua
+                        .from_value::<Option<ToolUi>>(table.raw_get("ui")?)
+                        .ok()
+                        .flatten()
+                } else {
+                    None
+                };
                 let output: LuaOutput = self.lua.from_value(value)?;
                 Ok(ToolOutput {
                     text: output.text,
                     is_error: output.is_error,
+                    ui,
                 })
             }
             .await;

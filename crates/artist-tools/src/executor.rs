@@ -90,6 +90,7 @@ async fn run(name: &str, arguments: &Value, cwd: &Path) -> Result<ToolOutput, St
             Ok(ToolOutput {
                 text,
                 is_error: result.exit_code != Some(0),
+                ui: None,
             })
         }
         _ => Err(format!("unknown tool: {name}")),

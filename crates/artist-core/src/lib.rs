@@ -7,4 +7,5 @@ pub mod display;
 pub mod engine;
 pub mod event;
 pub mod response;
+pub mod tool_ui;
 pub mod tools;
