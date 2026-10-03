@@ -1,11 +1,14 @@
 //! One typed source for every navigable transcript block.
-//! Responses and thinking are typed text blocks; tools/debug events retain JSON presentation.
+//! Responses and thinking are typed text blocks; tool events retain JSON presentation.
 
 pub enum ChatBlock {
     UserMessage {
         text: String,
     },
     RawJson {
+        text: String,
+    },
+    Notice {
         text: String,
     },
     ThinkingTrace {
@@ -25,6 +28,7 @@ impl ChatBlock {
         match self {
             Self::UserMessage { text }
             | Self::RawJson { text }
+            | Self::Notice { text }
             | Self::ThinkingTrace { text }
             | Self::AssistantResponse { text }
             | Self::ToolUse { text } => text,
@@ -35,6 +39,7 @@ impl ChatBlock {
         match self {
             Self::UserMessage { text }
             | Self::RawJson { text }
+            | Self::Notice { text }
             | Self::ThinkingTrace { text }
             | Self::AssistantResponse { text }
             | Self::ToolUse { text } => text,

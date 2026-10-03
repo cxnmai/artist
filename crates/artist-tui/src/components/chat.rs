@@ -24,7 +24,7 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
                 colors::RAW_JSON_FOREGROUND,
                 colors::RAW_JSON_BACKGROUND,
             ),
-            ChatBlock::AssistantResponse { text } => {
+            ChatBlock::AssistantResponse { text } | ChatBlock::Notice { text } => {
                 (text, colors::OUTPUT_FOREGROUND, colors::BACKGROUND)
             }
             ChatBlock::ThinkingTrace { text } => {

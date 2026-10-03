@@ -1,4 +1,4 @@
-//! Typed backend events update status and response blocks; only tools/debug events use JSON.
+//! Typed backend events update status and response blocks; only tool events use JSON.
 
 use artist_core::cancellation::CancellationToken;
 use artist_core::display::{DisplayEntry, DisplayModelEvent};
@@ -27,54 +27,31 @@ impl App {
 
     pub fn apply_events(&mut self, events: Vec<AgentEvent>) {
         for event in events {
-            let json = if matches!(
-                &event,
-                AgentEvent::User { .. }
-                    | AgentEvent::Model {
-                        event: DisplayModelEvent::TextDelta { .. }
-                            | DisplayModelEvent::ThinkingDelta { .. }
-                    }
-                    | AgentEvent::Assistant {
-                        entry: DisplayEntry::Assistant { .. }
-                    }
-            ) {
-                None
-            } else {
-                Some(serde_json::to_string(&event).expect("agent events serialize"))
-            };
             match event {
                 AgentEvent::User { text } => {
-                    // The authoritative backend user event creates the band once, not twice.
                     self.response.reset();
                     self.chat.push(ChatBlock::UserMessage { text });
-                    continue;
                 }
                 AgentEvent::Model {
                     event: DisplayModelEvent::TextDelta { text },
                 } => {
                     self.response.delta(&mut self.chat, OutputKind::Text, text);
-                    continue;
                 }
                 AgentEvent::Model {
                     event: DisplayModelEvent::ThinkingDelta { text },
                 } => {
                     self.response
                         .delta(&mut self.chat, OutputKind::Thinking, text);
-                    continue;
                 }
                 AgentEvent::Assistant {
                     entry: DisplayEntry::Assistant { blocks },
                 } => {
                     let tools = self.response.commit(&mut self.chat, blocks);
                     if !tools.is_empty() {
-                        let event = AgentEvent::Assistant {
+                        self.push_tool_json(AgentEvent::Assistant {
                             entry: DisplayEntry::Assistant { blocks: tools },
-                        };
-                        self.chat.push(ChatBlock::RawJson {
-                            text: serde_json::to_string(&event).expect("tool events serialize"),
                         });
                     }
-                    continue;
                 }
                 AgentEvent::ModelInfo {
                     provider,
@@ -90,17 +67,45 @@ impl App {
                     self.status.context_usage = None;
                 }
                 AgentEvent::ContextUsage { usage } => self.status.context_usage = Some(usage),
-                AgentEvent::Done | AgentEvent::Cancelled | AgentEvent::Error { .. } => {
-                    self.active_turn = None;
-                    self.status.busy = false;
-                    self.response.reset();
+                AgentEvent::Model {
+                    event: DisplayModelEvent::Usage { .. } | DisplayModelEvent::Finished { .. },
+                } => {}
+                event @ AgentEvent::Model { .. } | event @ AgentEvent::ToolResult { .. } => {
+                    self.push_tool_json(event)
+                }
+                AgentEvent::Done => self.end_turn(),
+                AgentEvent::Cancelled => {
+                    self.end_turn();
+                    self.chat.push(ChatBlock::Notice {
+                        text: "Cancelled.".into(),
+                    });
+                }
+                AgentEvent::Error { message } => {
+                    self.end_turn();
+                    self.chat.push(ChatBlock::Notice {
+                        text: format!("Error: {message}"),
+                    });
+                }
+                AgentEvent::Compacted { .. } => {
+                    self.chat.push(ChatBlock::Notice {
+                        text: "Context compacted.".into(),
+                    });
                 }
                 _ => {}
             }
-            self.chat.push(ChatBlock::RawJson {
-                text: json.expect("unformatted event has a JSON presentation"),
-            });
         }
+    }
+
+    fn push_tool_json(&mut self, event: AgentEvent) {
+        self.chat.push(ChatBlock::RawJson {
+            text: serde_json::to_string(&event).expect("tool events serialize"),
+        });
+    }
+
+    fn end_turn(&mut self) {
+        self.active_turn = None;
+        self.status.busy = false;
+        self.response.reset();
     }
 
     pub(super) fn submit(&mut self) {
