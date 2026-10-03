@@ -13,6 +13,7 @@ mod input_layout;
 mod mode;
 mod response_view;
 mod terminal;
+mod tool_view;
 mod ui;
 
 use std::io;
@@ -46,7 +47,11 @@ async fn run(terminal: &mut ratatui::DefaultTerminal, options: Options) -> io::R
     loop {
         terminal.draw(|frame| {
             let areas = ui::areas(frame.area(), &app);
-            app.chat.prepare(areas.chat.width, areas.chat.height);
+            app.chat.prepare(
+                areas.chat.width,
+                areas.chat.height,
+                matches!(app.mode, mode::Mode::Navigation),
+            );
             ui::render(frame, &app, areas);
         })?;
         // Lua stays on this thread; provider discovery never blocks keyboard input.
