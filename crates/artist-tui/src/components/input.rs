@@ -1,7 +1,7 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
-use ratatui::widgets::Block;
+use ratatui::widgets::{Block, Borders};
 
 use crate::colors;
 use crate::input::InputBox;
@@ -10,8 +10,17 @@ pub fn render(frame: &mut Frame, area: Rect, input: &InputBox) {
     if area.is_empty() {
         return;
     }
-    frame.render_widget(Block::default().style(InputBox::style()), area);
-    // Reserve one white cell for the caret at the end of a completely full line.
+    let border = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(colors::INPUT_BORDER))
+        .style(InputBox::style());
+    let inner = border.inner(area);
+    frame.render_widget(border, area);
+    let area = inner;
+    if area.is_empty() {
+        return;
+    }
+    // Reserve one cell for the caret at the end of a completely full line.
     let editor_area = Rect {
         width: area.width.saturating_sub(1).max(1),
         ..area

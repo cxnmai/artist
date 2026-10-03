@@ -76,9 +76,10 @@ impl InputBox {
     pub fn height(&self, width: u16, available: u16) -> u16 {
         input_layout::height(
             self.editor.lines(),
-            width.saturating_sub(1),
+            width.saturating_sub(3), // Two borders and the end-of-line caret cell.
             self.editor.tab_length(),
         )
+        .saturating_add(2) // One editable line plus top/bottom borders initially.
         .min(available)
     }
 }
