@@ -12,7 +12,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         .bg(colors::RIBBON_BACKGROUND)
         .fg(colors::RIBBON_FOREGROUND);
     frame.render_widget(Block::default().style(style), area);
-    let path = app.status.cwd.to_string_lossy();
+    let path = display_path(&app.status.cwd);
     let directory_width = (Line::from(path.as_ref()).width().saturating_add(2) as u16)
         .min(area.width.saturating_sub(5) / 3);
     let [mode, details, directory] = Layout::horizontal([
@@ -51,6 +51,19 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     );
 }
 
+fn display_path(path: &std::path::Path) -> std::borrow::Cow<'_, str> {
+    if let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) {
+        if let Ok(relative) = path.strip_prefix(std::path::Path::new(&home)) {
+            return if relative.as_os_str().is_empty() {
+                "~".into()
+            } else {
+                format!("~/{}", relative.to_string_lossy()).into()
+            };
+        }
+    }
+    path.to_string_lossy()
+}
+
 fn details_text(status: &Status, width: usize) -> String {
     if status.loading {
         return " Loading provider…".into();
@@ -77,7 +90,7 @@ fn details_text(status: &Status, width: usize) -> String {
             None => "—".into(),
         },
     };
-    let full = format!(" {provider}/{model} │ reasoning {reasoning} │ ctx {context}");
+    let full = format!(" {provider}/{model}  reasoning {reasoning}  ctx {context}");
     if Line::from(full.as_str()).width() <= width {
         return full;
     }
@@ -86,7 +99,7 @@ fn details_text(status: &Status, width: usize) -> String {
         .as_ref()
         .map(|usage| format!("{:.1}%", usage.percent))
         .unwrap_or_else(|| "—".into());
-    let suffix = format!(" │ {reasoning} │ ctx {percent}");
+    let suffix = format!("  {reasoning}  ctx {percent}");
     let name_width = width.saturating_sub(Line::from(suffix.as_str()).width() + 1);
     format!(
         " {}{suffix}",
