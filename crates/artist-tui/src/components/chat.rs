@@ -21,9 +21,10 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
                 colors::USER_MESSAGE_BACKGROUND,
             ),
             ChatBlock::RawJson { .. } => (colors::RAW_JSON_FOREGROUND, colors::RAW_JSON_BACKGROUND),
-            ChatBlock::AssistantResponse { .. }
-            | ChatBlock::Notice { .. }
-            | ChatBlock::ToolUse { .. } => (colors::OUTPUT_FOREGROUND, colors::BACKGROUND),
+            ChatBlock::AssistantResponse { .. } | ChatBlock::Notice { .. } => {
+                (colors::OUTPUT_FOREGROUND, colors::BACKGROUND)
+            }
+            ChatBlock::ToolUse { .. } => (colors::TOOL_FOREGROUND, colors::TOOL_BACKGROUND),
             ChatBlock::ThinkingTrace { .. } => (colors::THINKING_FOREGROUND, colors::BACKGROUND),
         };
         if range.end <= chat.scroll || range.start >= bottom {
@@ -52,12 +53,19 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
         }
         // Fill the complete row width, including whitespace after the message text.
         frame.render_widget(Block::default().style(style), visible);
+        let padding = block.padding(visible.width);
+        let content = Rect::new(
+            visible.x + padding,
+            visible.y,
+            block.content_width(visible.width),
+            visible.height,
+        );
         frame.render_widget(
             Paragraph::new(text)
                 .style(style)
                 .wrap(Wrap { trim: false })
                 .scroll((skipped.min(usize::from(u16::MAX)) as u16, 0)),
-            visible,
+            content,
         );
     }
 }

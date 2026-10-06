@@ -26,4 +26,8 @@ The TUI groups each tool call and result into one navigable transcript block:
 
 Existing string results and result tables without `ui` remain valid. Invalid UI metadata falls back to JSON without changing a completed tool's model-facing result or error flag. Cancellation-generated results have no custom UI. Partial argument events remain JSON until complete typed arguments are available.
 
-Built-in tools have no custom presentation yet. This is only the transport and rendering framework; it does not compute write/edit diffs or install example tool renderers. Session persistence is not implemented, including persistence of UI metadata.
+Default tool views are declared in `src/default.lua`: `Read <path>` (expanded file contents), `Edited <path>` and `Wrote to <path>` (expanded colored unified diffs), and the bash command (expanded command output). Failed file operations show failure summaries and their errors, not success labels. All tools, including custom and JSON-fallback tools, occupy shaded full-width bands with horizontally padded text.
+
+`artist.native.display_path(path, cwd)` returns paths relative to the working/project directory when inside it, otherwise absolute paths. `artist.native.execute` returns normal `text`/`is_error` plus optional raw `diff` data for successful edit/write operations. Lua owns all summary strings, diff colors, and fallback messages. Edits use the exact validated before/after contents; writes capture a before-image, treating new files as additions. Unreadable/non-UTF-8 before-images leave diff data absent without changing successful write semantics. A no-change write returns an empty diff. Custom wrappers can reuse these data helpers or supply their own `ui`.
+
+Session persistence is not implemented, including persistence of UI metadata.

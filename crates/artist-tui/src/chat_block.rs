@@ -25,6 +25,19 @@ impl ChatBlock {
         }
     }
 
+    /// Horizontal padding for tool bands, preserving at least one text column.
+    pub fn padding(&self, width: u16) -> u16 {
+        if matches!(self, Self::ToolUse { .. }) {
+            2.min(width.saturating_sub(1) / 2)
+        } else {
+            0
+        }
+    }
+
+    pub fn content_width(&self, width: u16) -> u16 {
+        width.saturating_sub(2 * self.padding(width))
+    }
+
     pub fn rendered(&self, expanded: bool) -> Text<'_> {
         match self {
             Self::ToolUse { view } => view.styled(expanded),
