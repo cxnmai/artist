@@ -79,10 +79,19 @@ pub fn install_native(lua: &Lua) -> mlua::Result<()> {
         lua.create_async_function(
             |lua, (name, args, cwd): (String, LuaValue, String)| async move {
                 let args: Value = lua.from_value(args)?;
-                let output = BuiltinTools.execute(&name, &args, Path::new(&cwd)).await;
-                lua.to_value(&serde_json::json!({"text": output.text, "is_error": output.is_error}))
+                let (output, diff) = BuiltinTools.execute_with_diff(&name, &args, Path::new(&cwd)).await;
+                lua.to_value(&serde_json::json!({"text": output.text, "is_error": output.is_error, "diff": diff}))
             },
         )?,
+    )?;
+    native.set(
+        "display_path",
+        lua.create_function(|_, (path, cwd): (String, String)| {
+            Ok(artist_tools::presentation::path(
+                Path::new(&path),
+                Path::new(&cwd),
+            ))
+        })?,
     )?;
     artist.set("native", native)?;
     let json = lua.create_table()?;
