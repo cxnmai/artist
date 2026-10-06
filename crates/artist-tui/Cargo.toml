@@ -14,3 +14,4 @@ artist-lua = { path = "../artist-lua" }
 futures-util = "0.3"
 tokio = { version = "1", features = ["macros", "rt", "sync"] }
 serde_json = "1"
+vte = "0.14.1"

@@ -14,3 +14,10 @@ pub const RAW_JSON_BACKGROUND: Color = BACKGROUND;
 pub const RAW_JSON_FOREGROUND: Color = RIBBON_FOREGROUND;
 pub const OUTPUT_FOREGROUND: Color = Color::Rgb(0xFF, 0xFF, 0xFF);
 pub const THINKING_FOREGROUND: Color = Color::Rgb(0xBB, 0xBB, 0xBB);
+
+pub fn ansi_index(index: u8) -> Color {
+    Color::Indexed(index)
+}
+pub fn ansi_rgb(r: u8, g: u8, b: u8) -> Color {
+    Color::Rgb(r, g, b)
+}
