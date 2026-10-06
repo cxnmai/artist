@@ -13,7 +13,8 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
     }
     let bottom = chat.scroll.saturating_add(usize::from(area.height));
     for (index, (block, range)) in chat.blocks.iter().zip(&chat.ranges).enumerate() {
-        let text = block.text_for(navigating && chat.selected == Some(index));
+        let selected = navigating && chat.selected == Some(index);
+        let text = block.rendered(selected);
         let (foreground, background) = match block {
             ChatBlock::UserMessage { .. } => (
                 colors::USER_MESSAGE_FOREGROUND,
@@ -35,7 +36,13 @@ pub fn render(frame: &mut Frame, area: Rect, chat: &Chat, navigating: bool) {
             .saturating_sub(skipped)
             .min(usize::from(area.height) - top);
         let visible = Rect::new(area.x, area.y + top as u16, area.width, height as u16);
-        let mut style = if navigating && chat.selected == Some(index) {
+        let mut style = if selected && matches!(block, ChatBlock::ToolUse { .. }) {
+            // Preserve supplied ANSI colors when expanding/ selecting a tool.
+            Style::default()
+                .bg(background)
+                .fg(foreground)
+                .add_modifier(Modifier::BOLD)
+        } else if selected {
             Style::default().bg(foreground).fg(background)
         } else {
             Style::default().bg(background).fg(foreground)

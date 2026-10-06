@@ -2,6 +2,7 @@
 //! Tools use optional compact/expanded presentation with JSON fallback.
 
 use crate::tool_view::ToolView;
+use ratatui::text::Text;
 
 pub enum ChatBlock {
     UserMessage { text: String },
@@ -24,10 +25,10 @@ impl ChatBlock {
         }
     }
 
-    pub fn text_for(&self, expanded: bool) -> &str {
+    pub fn rendered(&self, expanded: bool) -> Text<'_> {
         match self {
-            Self::ToolUse { view } => view.text(expanded),
-            _ => self.text(),
+            Self::ToolUse { view } => view.styled(expanded),
+            _ => Text::from(self.text()),
         }
     }
 

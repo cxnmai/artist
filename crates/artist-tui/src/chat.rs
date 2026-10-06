@@ -75,7 +75,7 @@ impl Chat {
                 .last()
                 .map_or(0, |range| range.end.saturating_add(1));
             for (index, block) in self.blocks.iter().enumerate().skip(self.ranges.len()) {
-                let count = Paragraph::new(block.text_for(self.expanded == Some(index)))
+                let count = Paragraph::new(block.rendered(self.expanded == Some(index)))
                     .wrap(Wrap { trim: false })
                     .line_count(width)
                     .max(1);

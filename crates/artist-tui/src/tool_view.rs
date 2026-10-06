@@ -1,5 +1,7 @@
 //! Typed tool I/O with compact/expanded presentation and JSON fallback.
 
+use crate::ansi;
+use ratatui::text::Text;
 use std::collections::HashMap;
 
 use artist_core::display::{DisplayBlock, DisplayEntry};
@@ -14,6 +16,8 @@ pub struct ToolView {
     ui: Option<ToolUi>,
     pub(super) compact: String,
     expanded: String,
+    compact_styled: Text<'static>,
+    expanded_styled: Text<'static>,
 }
 
 impl ToolView {
@@ -24,6 +28,8 @@ impl ToolView {
             ui: None,
             compact: String::new(),
             expanded: String::new(),
+            compact_styled: Text::default(),
+            expanded_styled: Text::default(),
         }
     }
 
@@ -32,6 +38,14 @@ impl ToolView {
             &self.expanded
         } else {
             &self.compact
+        }
+    }
+
+    pub fn styled(&self, expanded: bool) -> Text<'static> {
+        if expanded {
+            self.expanded_styled.clone()
+        } else {
+            self.compact_styled.clone()
         }
     }
 
@@ -47,6 +61,8 @@ impl ToolView {
                 self.expanded = raw;
             }
         }
+        self.compact_styled = ansi::parse(&self.compact);
+        self.expanded_styled = ansi::parse(&self.expanded);
     }
 }
 

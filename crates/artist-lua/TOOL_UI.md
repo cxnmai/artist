@@ -9,7 +9,9 @@ A registered tool's `execute(args, ctx)` may return optional `ui` metadata along
 | `ui.short` | Required string when `ui` is supplied: compact summary of the operation. |
 | `ui.long` | Optional string: expanded detail, such as a diff or detailed input/output. |
 
-Both views are plain text; newlines are supported. No Markdown, terminal escape sequences, or diff-specific styling API is provided by this framework.
+Both views remain strings, with newlines and ANSI SGR colors/styles supported by the TUI. Standard/bright colors, 256-color palettes, RGB colors, bold, dim, italic, underline, reverse, strikethrough, and resets are supported. For example, `"\27[31m-old\27[0m\n\27[32m+new\27[0m"` in Lua colors removed/added text red/green. There is no diff-specific logic or Markdown rendering.
+
+Only styling is interpreted. Cursor movement, screen clearing, OSC titles/links/clipboard commands, DCS, bell, carriage returns, and other terminal controls are ignored rather than sent to the terminal. Tabs expand to four spaces. Styling is parsed once per view update; layout measures the resulting text without escape bytes. NAV tool selection uses bold emphasis instead of color inversion to preserve supplied foreground/background colors. Colors apply to text spans, not automatically to the remainder of a row.
 
 The backend emits `ui` on the typed `AgentEvent::ToolResult` after execution. It does **not** store UI metadata in `Conversation`, send it to the model, include it in compaction, or count it toward context occupancy. Other frontends can use the same data without decoding provider JSON.
 
