@@ -14,7 +14,7 @@ pub const RAW_JSON_BACKGROUND: Color = BACKGROUND;
 pub const RAW_JSON_FOREGROUND: Color = RIBBON_FOREGROUND;
 pub const OUTPUT_FOREGROUND: Color = Color::Rgb(0xFF, 0xFF, 0xFF);
 pub const THINKING_FOREGROUND: Color = Color::Rgb(0xBB, 0xBB, 0xBB);
-pub const TOOL_BACKGROUND: Color = RIBBON_BACKGROUND;
+pub const TOOL_BACKGROUND: Color = BACKGROUND;
 pub const TOOL_FOREGROUND: Color = OUTPUT_FOREGROUND;
 
 pub fn ansi_index(index: u8) -> Color {

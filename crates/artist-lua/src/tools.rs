@@ -79,8 +79,10 @@ pub fn install_native(lua: &Lua) -> mlua::Result<()> {
         lua.create_async_function(
             |lua, (name, args, cwd): (String, LuaValue, String)| async move {
                 let args: Value = lua.from_value(args)?;
+                let started = std::time::Instant::now();
                 let (output, diff) = BuiltinTools.execute_with_diff(&name, &args, Path::new(&cwd)).await;
-                lua.to_value(&serde_json::json!({"text": output.text, "is_error": output.is_error, "diff": diff}))
+                lua.to_value(&serde_json::json!({"text": output.text, "is_error": output.is_error, "diff": diff,
+                    "elapsed_seconds": started.elapsed().as_secs_f64()}))
             },
         )?,
     )?;
