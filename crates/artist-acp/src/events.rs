@@ -69,7 +69,9 @@ pub fn map_events(events: Vec<AgentEvent>) -> Vec<SessionUpdate> {
                 let fields = ToolCallUpdateFields::new()
                     .status(status)
                     .raw_output(serde_json::Value::String(text.clone()))
-                    .content(vec![ToolCallContent::from(TextContent::new(text))]);
+                    .content(vec![ToolCallContent::from(ContentBlock::Text(
+                        TextContent::new(text),
+                    ))]);
                 updates.push(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                     tool_call_id,
                     fields,
