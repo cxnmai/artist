@@ -18,7 +18,8 @@ absolute `cwd`; Artist never changes the process working directory.
 
 Supported: `initialize`, `session/new`, `session/prompt`, `session/cancel`,
 streamed assistant text/thoughts, and tool-call status/input/output updates.
-Prompts accept text and resource links. Sessions live only for the server process.
+Prompts accept text and resource links. Links are passed to the model as names/URIs
+for tool-based access, not fetched automatically. Sessions live only for the server process.
 Overlapping prompts within a session are rejected; separate sessions can run
 concurrently. Cancellation uses Artist's cooperative cancellation token.
 
