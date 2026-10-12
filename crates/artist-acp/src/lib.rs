@@ -28,7 +28,9 @@ pub async fn serve(mut options: Options) -> Result<(), String> {
                 agent.clone(),
                 tokio::io::stdout().compat_write(),
                 tokio::io::stdin().compat(),
-                |task| { tokio::task::spawn_local(task); },
+                |task| {
+                    tokio::task::spawn_local(task);
+                },
             );
             agent.set_connection(Rc::new(connection));
             let result = tokio::select! {

@@ -7,10 +7,15 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "Usage: artist [-p \"prompt\" ...] --config path.lua [--model model-id] [--reasoning level] [--list-models|--list-models-json]";
+mod acp;
+
+const USAGE: &str = "Usage: artist [-p \"prompt\" ...] --config path.lua [--model model-id] [--reasoning level] [--list-models|--list-models-json]\n       artist acp [--config path.lua] [--model model-id] [--reasoning level]";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
+    if env::args().nth(1).as_deref() == Some("acp") {
+        return acp::run().await;
+    }
     let mut prompts = Vec::new();
     let mut config = None;
     let mut model = None;
