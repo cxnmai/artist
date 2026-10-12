@@ -32,7 +32,21 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(config: Option<&Path>) -> Result<Self, String> {
+        Self::create(config, false)
+    }
+
+    /// Keep Lua diagnostics off the protocol's stdout, including during config loading.
+    pub fn new_with_stderr(config: Option<&Path>) -> Result<Self, String> {
+        Self::create(config, true)
+    }
+
+    fn create(config: Option<&Path>, diagnostics_to_stderr: bool) -> Result<Self, String> {
         let lua = Lua::new();
+        if diagnostics_to_stderr {
+            lua.load("print = function(...) local t = {}; for i = 1, select('#', ...) do t[i] = tostring(select(i, ...)) end; io.stderr:write(table.concat(t, '\\t'), '\\n') end; io.write = function(...) return io.stderr:write(...) end")
+                .exec()
+                .map_err(|e| e.to_string())?;
+        }
         let client = ModelClient::new();
         let registry = Rc::new(RefCell::new(Registry::default()));
         registry::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;

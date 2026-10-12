@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+artist-acp = { path = "../artist-acp" }
 artist-core = { path = "../artist-core" }
 artist-lua = { path = "../artist-lua" }
 serde_json = "1"

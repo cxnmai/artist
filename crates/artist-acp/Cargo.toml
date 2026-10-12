@@ -1,0 +1,14 @@
+[package]
+name = "artist-acp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# The local-future SDK accommodates Artist's non-Send Lua runtime; wire protocol is ACP v1.
+agent-client-protocol = "0.9"
+artist-core = { path = "../artist-core" }
+artist-lua = { path = "../artist-lua" }
+async-trait = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "io-std", "sync", "signal"] }
+tokio-util = { version = "0.7", features = ["compat"] }
