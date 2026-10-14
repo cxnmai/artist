@@ -1,5 +1,4 @@
 use crate::registry::Registry;
-use artist_core::tool_ui::ToolUi;
 use artist_core::tools::{ToolExecutor, ToolOutput};
 use artist_tools::executor::BuiltinTools;
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
@@ -49,20 +48,10 @@ impl ToolExecutor for LuaTools<'_> {
                 if let mlua::Value::String(text) = value {
                     return Ok(ToolOutput::success(text.to_str()?.to_owned()));
                 }
-                // Presentation cannot turn an already completed tool into a model-facing error.
-                let ui = if let LuaValue::Table(table) = &value {
-                    self.lua
-                        .from_value::<Option<ToolUi>>(table.raw_get("ui")?)
-                        .ok()
-                        .flatten()
-                } else {
-                    None
-                };
                 let output: LuaOutput = self.lua.from_value(value)?;
                 Ok(ToolOutput {
                     text: output.text,
                     is_error: output.is_error,
-                    ui,
                 })
             }
             .await;
@@ -79,21 +68,10 @@ pub fn install_native(lua: &Lua) -> mlua::Result<()> {
         lua.create_async_function(
             |lua, (name, args, cwd): (String, LuaValue, String)| async move {
                 let args: Value = lua.from_value(args)?;
-                let started = std::time::Instant::now();
-                let (output, diff) = BuiltinTools.execute_with_diff(&name, &args, Path::new(&cwd)).await;
-                lua.to_value(&serde_json::json!({"text": output.text, "is_error": output.is_error, "diff": diff,
-                    "elapsed_seconds": started.elapsed().as_secs_f64()}))
+                let output = BuiltinTools.execute(&name, &args, Path::new(&cwd)).await;
+                lua.to_value(&serde_json::json!({"text": output.text, "is_error": output.is_error}))
             },
         )?,
-    )?;
-    native.set(
-        "display_path",
-        lua.create_function(|_, (path, cwd): (String, String)| {
-            Ok(artist_tools::presentation::path(
-                Path::new(&path),
-                Path::new(&cwd),
-            ))
-        })?,
     )?;
     artist.set("native", native)?;
     let json = lua.create_table()?;

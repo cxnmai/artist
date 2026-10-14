@@ -20,8 +20,6 @@ pub struct EditArgs {
 
 pub struct EditResult {
     pub replacements: usize,
-    pub before: String,
-    pub after: String,
 }
 
 fn invalid(message: impl Into<String>) -> io::Error {
@@ -77,7 +75,5 @@ pub fn edit(args: &EditArgs, cwd: &Path) -> io::Result<EditResult> {
     fs::write(path, &updated)?;
     Ok(EditResult {
         replacements: args.edits.len(),
-        before: original,
-        after: updated,
     })
 }

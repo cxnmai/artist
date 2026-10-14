@@ -9,7 +9,6 @@ use crate::context_usage::{ContextUsage, UsageAnchor};
 use crate::display::{DisplayEntry, DisplayModelEvent};
 use crate::event::ModelEvent;
 use crate::response::ResponseAccumulator;
-use crate::tool_ui::ToolUi;
 use crate::tools::{ToolDefinition, ToolExecutor, record_assistant};
 use serde::Serialize;
 use std::future::Future;
@@ -79,8 +78,6 @@ pub enum AgentEvent {
     },
     ToolResult {
         entry: DisplayEntry,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        ui: Option<ToolUi>,
     },
     Compacted {
         summary: String,
@@ -251,10 +248,9 @@ async fn run_turn_inner(
             executor,
             cwd,
             cancellation,
-            &mut |entry, ui| {
+            &mut |entry| {
                 emit(vec![AgentEvent::ToolResult {
                     entry: DisplayEntry::from(entry),
-                    ui,
                 }]);
             },
         )

@@ -2,7 +2,6 @@
 
 use crate::cancellation::CancellationToken;
 use crate::context::{AssistantBlock, ContextEntry, Conversation};
-use crate::tool_ui::ToolUi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;
@@ -19,7 +18,6 @@ pub struct ToolDefinition {
 pub struct ToolOutput {
     pub text: String,
     pub is_error: bool,
-    pub ui: Option<ToolUi>,
 }
 
 impl ToolOutput {
@@ -27,7 +25,6 @@ impl ToolOutput {
         Self {
             text: text.into(),
             is_error: false,
-            ui: None,
         }
     }
 
@@ -35,7 +32,6 @@ impl ToolOutput {
         Self {
             text: text.into(),
             is_error: true,
-            ui: None,
         }
     }
 }
@@ -56,7 +52,7 @@ pub async fn record_assistant(
     executor: &dyn ToolExecutor,
     cwd: &Path,
     cancellation: &CancellationToken,
-    on_result: &mut dyn FnMut(&ContextEntry, Option<ToolUi>),
+    on_result: &mut dyn FnMut(&ContextEntry),
 ) -> Result<bool, &'static str> {
     let ContextEntry::Assistant { blocks } = assistant else {
         return Err("expected an assistant entry");
@@ -98,7 +94,7 @@ pub async fn record_assistant(
             text: output.text,
             is_error: output.is_error,
         };
-        on_result(&result, output.ui);
+        on_result(&result);
         conversation.entries.push(result);
     }
     Ok(cancelled || cancellation.is_cancelled())

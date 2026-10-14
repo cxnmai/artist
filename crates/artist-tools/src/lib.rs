@@ -3,6 +3,5 @@
 pub mod bash;
 pub mod edit;
 pub mod executor;
-pub mod presentation;
 pub mod read;
 pub mod write;

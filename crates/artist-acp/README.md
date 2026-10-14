@@ -34,4 +34,4 @@ processes that write directly to stdout, which is reserved for ACP traffic.
 
 The adapter uses the 0.9 Rust SDK's local-future API because Artist's embedded
 Lua runtime is non-`Send`. This is an SDK version choice, not a custom protocol.
-The TUI and existing NDJSON CLI remain available unchanged.
+The existing NDJSON CLI remains available unchanged.

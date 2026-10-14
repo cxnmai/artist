@@ -12,71 +12,6 @@ artist.set_system_prompt(function(context)
     .. " operating inside of the agentic harness 'Artist.'"
 end)
 
--- Presentation stays in Lua; native helpers supply paths and raw before/after diffs.
-local function display_path(args, ctx)
-  if type(args.path) ~= "string" then return "<invalid path>" end
-  return artist.native.display_path(args.path, ctx.cwd)
-end
-
-local function header(name, description)
-  return "\27[1m" .. name .. "\27[0m \27[38;5;245m" .. description .. "\27[0m"
-end
-
-local function line_count(text)
-  if text == "" then return 0 end
-  local _, count = text:gsub("\n", "")
-  return count + (text:sub(-1) == "\n" and 0 or 1)
-end
-
-local function footer(result, added, removed)
-  local detail
-  if added then
-    detail = "\27[92m+" .. added .. "\27[90m \27[91m-" .. removed .. "\27[90m"
-  else
-    local count = line_count(result.text)
-    detail = count .. (count == 1 and " line" or " lines")
-  end
-  return "\27[90m" .. (result.is_error and "Failed" or "Done")
-    .. string.format(" in %.3fs (", result.elapsed_seconds or 0) .. detail .. ")\27[0m"
-end
-
-local function diff_view(result)
-  if result.is_error then return result.text end
-  if type(result.diff) ~= "string" then
-    return "Diff unavailable: previous contents could not be read as UTF-8."
-  end
-  if result.diff == "" then return "No changes.", 0, 0 end
-  local lines, added, removed = {}, 0, 0
-  local old_line, new_line
-  for line in (result.diff:gsub("\n$", "") .. "\n"):gmatch("(.-)\n") do
-    -- Number changed lines, omit unified headers/context, and prevent injected styling.
-    line = line:gsub("[%z\1-\8\11-\31\127]", "")
-    local old_start, new_start = line:match("^@@ %-(%d+),?%d* %+(%d+),?%d* @@")
-    if old_start then
-      old_line, new_line = tonumber(old_start), tonumber(new_start)
-    elseif old_line then
-      local prefix = line:sub(1, 1)
-      if prefix == "+" then
-        lines[#lines + 1] = "\27[92m" .. new_line .. " + " .. line:sub(2) .. "\27[0m"
-        new_line, added = new_line + 1, added + 1
-      elseif prefix == "-" then
-        lines[#lines + 1] = "\27[91m" .. old_line .. " - " .. line:sub(2) .. "\27[0m"
-        old_line, removed = old_line + 1, removed + 1
-      elseif prefix == " " then
-        old_line, new_line = old_line + 1, new_line + 1
-      end
-    end
-  end
-  return table.concat(lines, "\n"), added, removed
-end
-
-local function command_description(command)
-  if type(command) ~= "string" then return "Run <invalid command>" end
-  local first = command:match("[^\n]+") or command
-  local extra = math.max(0, line_count(command) - 1)
-  return "Run " .. first .. (extra > 0 and (" + " .. extra .. (extra == 1 and " more step" or " more steps")) or "")
-end
-
 artist.register_tool({
   name = "read",
   description = "Read the contents of a text file. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
@@ -90,12 +25,7 @@ artist.register_tool({
     required = {"path"},
   },
   execute = function(args, ctx)
-    local result = artist.native.execute("read", args, ctx.cwd)
-    result.ui = {
-      short = header("read", display_path(args, ctx)) .. "\n" .. footer(result),
-      long = result.text,
-    }
-    return result
+    return artist.native.execute("read", args, ctx.cwd)
   end,
 })
 
@@ -121,13 +51,7 @@ artist.register_tool({
     required = {"path", "edits"},
   },
   execute = function(args, ctx)
-    local result = artist.native.execute("edit", args, ctx.cwd)
-    local diff, added, removed = diff_view(result)
-    result.ui = {
-      short = header("edit", display_path(args, ctx)) .. "\n" .. diff .. "\n" .. footer(result, added, removed),
-      long = "", -- Like the reference, edit changes are visible inline.
-    }
-    return result
+    return artist.native.execute("edit", args, ctx.cwd)
   end,
 })
 
@@ -143,12 +67,7 @@ artist.register_tool({
     required = {"path", "content"},
   },
   execute = function(args, ctx)
-    local result = artist.native.execute("write", args, ctx.cwd)
-    result.ui = {
-      short = header("write", display_path(args, ctx)) .. "\n" .. footer(result),
-      long = diff_view(result),
-    }
-    return result
+    return artist.native.execute("write", args, ctx.cwd)
   end,
 })
 
@@ -164,8 +83,6 @@ artist.register_tool({
     required = {"command"},
   },
   execute = function(args, ctx)
-    local result = artist.native.execute("bash", args, ctx.cwd)
-    result.ui = {short = header("bash", command_description(args.command)) .. "\n" .. footer(result), long = result.text}
-    return result
+    return artist.native.execute("bash", args, ctx.cwd)
   end,
 })
