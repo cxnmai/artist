@@ -4,10 +4,9 @@ use crate::{
 };
 use agent_client_protocol::{
     Agent, AgentCapabilities, AgentSideConnection, AuthenticateRequest, AuthenticateResponse,
-    CancelNotification, Client, ContentBlock, Error, Implementation, InitializeRequest,
-    InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
-    NewSessionResponse, PromptRequest, PromptResponse, ProtocolVersion, Result,
-    SessionNotification,
+    CancelNotification, ContentBlock, Error, Implementation, InitializeRequest, InitializeResponse,
+    LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse, PromptRequest,
+    PromptResponse, ProtocolVersion, Result,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -102,13 +101,12 @@ impl Agent for ArtistAgent {
             .borrow()
             .clone()
             .ok_or_else(|| internal("client disconnected"))?;
-        for entry in session.store.transcript().await.map_err(internal)? {
-            for update in crate::replay::updates(&entry) {
-                connection
-                    .session_notification(SessionNotification::new(args.session_id.clone(), update))
-                    .await?;
-            }
-        }
+        crate::replay::send(
+            session.storage_directory().as_deref(),
+            args.session_id,
+            connection.as_ref(),
+        )
+        .await?;
         self.sessions.borrow_mut().insert(id, Rc::new(session));
         Ok(LoadSessionResponse::new())
     }

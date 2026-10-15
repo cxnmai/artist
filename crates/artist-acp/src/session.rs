@@ -124,6 +124,10 @@ impl Session {
         })
     }
 
+    pub fn storage_directory(&self) -> Option<PathBuf> {
+        self.runtime.sessions_directory()
+    }
+
     pub fn cancel(&self) {
         if let Some(token) = self.active.borrow().as_ref() {
             token.cancel();
