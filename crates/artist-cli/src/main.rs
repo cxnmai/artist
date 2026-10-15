@@ -25,7 +25,15 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let args::Options { prompts, config, model, reasoning, resume, list_models, list_models_json } = options;
+    let args::Options {
+        prompts,
+        config,
+        model,
+        reasoning,
+        resume,
+        list_models,
+        list_models_json,
+    } = options;
     let runtime = match Runtime::new(config.as_deref()) {
         Ok(runtime) => runtime,
         Err(message) => {
@@ -65,11 +73,17 @@ async fn main() -> ExitCode {
     } else {
         None
     };
-    if model.is_none() && saved.as_ref().is_some_and(|(_, settings)| settings.provider != provider) {
+    if model.is_none()
+        && saved
+            .as_ref()
+            .is_some_and(|(_, settings)| settings.provider != provider)
+    {
         emit(AgentEvent::Error { message: "saved provider differs from Lua configuration; select a compatible model explicitly with --model".into() });
         return ExitCode::FAILURE;
     }
-    let requested_model = model.as_deref().or_else(|| saved.as_ref().map(|(_, settings)| settings.model.as_str()));
+    let requested_model = model
+        .as_deref()
+        .or_else(|| saved.as_ref().map(|(_, settings)| settings.model.as_str()));
     let selected_model = match runtime.select_model(requested_model) {
         Ok(model) => model,
         Err(message) => {
@@ -78,7 +92,9 @@ async fn main() -> ExitCode {
         }
     };
     let inherited_reasoning = if model.is_none() {
-        saved.as_ref().map(|(_, settings)| settings.reasoning.clone())
+        saved
+            .as_ref()
+            .map(|(_, settings)| settings.reasoning.clone())
     } else {
         None
     };
@@ -89,7 +105,8 @@ async fn main() -> ExitCode {
         });
         return ExitCode::FAILURE;
     };
-    let level = reasoning.or_else(|| inherited_reasoning.unwrap_or_else(|| info.default_reasoning.clone()));
+    let level =
+        reasoning.or_else(|| inherited_reasoning.unwrap_or_else(|| info.default_reasoning.clone()));
     if let Some(level) = &level {
         if info
             .reasoning_levels
@@ -112,13 +129,20 @@ async fn main() -> ExitCode {
     let cwd = match env::current_dir().and_then(std::fs::canonicalize) {
         Ok(cwd) => cwd,
         Err(error) => {
-            emit(AgentEvent::Error { message: error.to_string() });
+            emit(AgentEvent::Error {
+                message: error.to_string(),
+            });
             return ExitCode::FAILURE;
         }
     };
     if let Some((saved_cwd, _)) = &saved {
         if *saved_cwd != cwd {
-            emit(AgentEvent::Error { message: format!("session belongs to {}; run artist from that directory", saved_cwd.display()) });
+            emit(AgentEvent::Error {
+                message: format!(
+                    "session belongs to {}; run artist from that directory",
+                    saved_cwd.display()
+                ),
+            });
             return ExitCode::FAILURE;
         }
     }
@@ -129,16 +153,33 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    let settings = artist_session::Settings { provider: provider.clone(), model: model.clone(), reasoning: level.clone() };
-    let mut session = match artist_session::Session::open(directory.as_deref(), resume.as_deref(), &cwd, settings.clone(), initial).await {
+    let settings = artist_session::Settings {
+        provider: provider.clone(),
+        model: model.clone(),
+        reasoning: level.clone(),
+    };
+    let mut session = match artist_session::Session::open(
+        directory.as_deref(),
+        resume.as_deref(),
+        &cwd,
+        settings.clone(),
+        initial,
+    )
+    .await
+    {
         Ok(session) => session,
         Err(message) => {
             emit(AgentEvent::Error { message });
             return ExitCode::FAILURE;
         }
     };
-    if saved.as_ref().is_some_and(|(_, expected)| session.settings != *expected) {
-        emit(AgentEvent::Error { message: "session settings changed while opening; retry resume".into() });
+    if saved
+        .as_ref()
+        .is_some_and(|(_, expected)| session.settings != *expected)
+    {
+        emit(AgentEvent::Error {
+            message: "session settings changed while opening; retry resume".into(),
+        });
         return ExitCode::FAILURE;
     }
     if let Err(message) = session.set_settings(settings).await {

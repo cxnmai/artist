@@ -28,8 +28,13 @@ pub fn parse() -> Result<Option<Options>, String> {
             accepting_prompts = false;
             continue;
         }
-        if matches!(arg.as_str(), "-p" | "-r" | "--config" | "--model" | "--reasoning") {
-            let value = args.next().filter(|value| !value.is_empty() && !value.starts_with('-'))
+        if matches!(
+            arg.as_str(),
+            "-p" | "-r" | "--config" | "--model" | "--reasoning"
+        ) {
+            let value = args
+                .next()
+                .filter(|value| !value.is_empty() && !value.starts_with('-'))
                 .ok_or_else(|| format!("{arg} requires a value\n{USAGE}"))?;
             accepting_prompts = arg == "-p";
             match arg.as_str() {
