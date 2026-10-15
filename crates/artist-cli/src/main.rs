@@ -4,86 +4,28 @@ use artist_core::engine::{AgentEvent, TurnOutcome};
 use artist_lua::Runtime;
 use std::env;
 use std::io::{self, Write};
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 mod acp;
-
-const USAGE: &str = "Usage: artist [-p \"prompt\" ...] --config path.lua [--model model-id] [--reasoning level] [--list-models|--list-models-json]\n       artist acp [--config path.lua] [--model model-id] [--reasoning level]";
+mod args;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     if env::args().nth(1).as_deref() == Some("acp") {
         return acp::run().await;
     }
-    let mut prompts = Vec::new();
-    let mut config = None;
-    let mut model = None;
-    let mut reasoning = None;
-    let mut list_models = false;
-    let mut list_models_json = false;
-    let mut args = env::args().skip(1);
-    let mut accepting_prompts = false;
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "-p" => {
-                let Some(prompt) = args
-                    .next()
-                    .filter(|text| !text.is_empty() && text != "-p" && text != "--config")
-                else {
-                    eprintln!("{USAGE}");
-                    return ExitCode::FAILURE;
-                };
-                prompts.push(prompt);
-                accepting_prompts = true;
-            }
-            "--model" => {
-                let Some(name) = args.next().filter(|name| !name.is_empty()) else {
-                    eprintln!("{USAGE}");
-                    return ExitCode::FAILURE;
-                };
-                model = Some(name);
-                accepting_prompts = false;
-            }
-            "--list-models" => {
-                list_models = true;
-                accepting_prompts = false;
-            }
-            "--list-models-json" => {
-                list_models_json = true;
-                accepting_prompts = false;
-            }
-            "--reasoning" => {
-                let Some(level) = args.next().filter(|value| !value.is_empty()) else {
-                    eprintln!("{USAGE}");
-                    return ExitCode::FAILURE;
-                };
-                reasoning = Some(level);
-                accepting_prompts = false;
-            }
-            "--config" => {
-                let Some(path) = args.next() else {
-                    eprintln!("{USAGE}");
-                    return ExitCode::FAILURE;
-                };
-                config = Some(PathBuf::from(path));
-                accepting_prompts = false;
-            }
-            "-h" | "--help" => {
-                println!("{USAGE}");
-                return ExitCode::SUCCESS;
-            }
-            _ if accepting_prompts && !arg.starts_with('-') => prompts.push(arg),
-            _ => {
-                eprintln!("{USAGE}");
-                return ExitCode::FAILURE;
-            }
+    let options = match args::parse() {
+        Ok(Some(options)) => options,
+        Ok(None) => {
+            println!("{}", args::USAGE);
+            return ExitCode::SUCCESS;
         }
-    }
-    if prompts.is_empty() && !list_models && !list_models_json {
-        eprintln!("{USAGE}");
-        return ExitCode::FAILURE;
-    }
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let args::Options { prompts, config, model, reasoning, resume, list_models, list_models_json } = options;
     let runtime = match Runtime::new(config.as_deref()) {
         Ok(runtime) => runtime,
         Err(message) => {
