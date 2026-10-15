@@ -25,10 +25,15 @@ pub async fn history(root: &Path, count: usize) -> Result<()> {
     .await?;
     crate::heartbeat::measure(&session, count).await?;
     reads::store(&directory, &session, count).await?;
-    reads::jsonl(&directory, count, &session.transcript().await?)?;
+    let transcript = session.transcript().await?;
+    assert_eq!(transcript.len(), count + 40, "persisted messages were lost");
+    reads::jsonl(&directory, count, &transcript)?;
+    drop(transcript);
     drop(session);
     metrics::measure("resume", count, 5, || async {
-        open(&directory, Some(&id), 0).await
+        let restored = open(&directory, Some(&id), 0).await?;
+        assert_eq!(restored.conversation.entries.len(), count + 40);
+        Ok(restored)
     })
     .await?;
     let session = open(&directory, Some(&id), 0).await?;

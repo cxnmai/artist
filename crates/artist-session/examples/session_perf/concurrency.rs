@@ -20,7 +20,9 @@ pub async fn child(directory: &Path, count: usize) -> Result<()> {
             })
             .await?)
     })
-    .await
+    .await?;
+    assert_eq!(session.transcript().await?.len(), count);
+    Ok(())
 }
 
 pub async fn run(root: &Path) -> Result<()> {
@@ -48,6 +50,12 @@ pub async fn run(root: &Path) -> Result<()> {
             print!("{}", String::from_utf8(output.stdout)?);
         }
         let seconds = start.elapsed().as_secs_f64();
+        let sessions = artist_session::list(Some(&directory), &std::env::current_dir()?).await?;
+        assert_eq!(sessions.len(), processes);
+        for info in sessions {
+            let page = artist_session::transcript(Some(&directory), &info.id, 0, 100).await?;
+            assert_eq!(page.items.len(), 50, "concurrent writer lost records");
+        }
         println!(
             "{}",
             serde_json::json!({"operation":"multiprocess", "processes":processes,
