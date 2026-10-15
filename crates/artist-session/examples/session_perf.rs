@@ -2,6 +2,8 @@
 //! Isolated, warm-cache microbenchmarks; never opens the default session store.
 #[path = "session_perf/concurrency.rs"]
 mod concurrency;
+#[path = "session_perf/heartbeat.rs"]
+mod heartbeat;
 #[path = "session_perf/metrics.rs"]
 mod metrics;
 #[path = "session_perf/reads.rs"]

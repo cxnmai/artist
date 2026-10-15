@@ -23,6 +23,7 @@ pub async fn history(root: &Path, count: usize) -> Result<()> {
             .await?)
     })
     .await?;
+    crate::heartbeat::measure(&session, count).await?;
     reads::store(&directory, &session, count).await?;
     reads::jsonl(&directory, count, &session.transcript().await?)?;
     drop(session);
