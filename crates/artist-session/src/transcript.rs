@@ -2,7 +2,7 @@ use crate::{
     blocking, database, paths,
     storage::{self, StoredRecord},
 };
-use artist_core::{display::DisplayEntry, journal::SessionRecord};
+use artist_core::{context::ContextEntry, display::DisplayEntry, journal::SessionRecord};
 use serde::Serialize;
 use std::path::Path;
 
@@ -56,6 +56,9 @@ async fn page_inner(
                 record: SessionRecord::Message { entry },
             } = record
             {
+                if matches!(entry, ContextEntry::Summary { .. }) {
+                    return None;
+                }
                 Some(TranscriptItem {
                     sequence,
                     entry: DisplayEntry::from(&entry),
