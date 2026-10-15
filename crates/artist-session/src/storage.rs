@@ -98,19 +98,50 @@ pub(crate) async fn initialize(
     )
     .await
     .map_err(error)?;
-    for record in records {
-        insert(&tx, &info.id, record).await?;
-    }
+    insert_records(&tx, &info.id, records).await?;
     tx.commit().await.map_err(error)
 }
 
-async fn insert(conn: &Connection, id: &str, record: &StoredRecord) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO records (session_id, sequence, timestamp, data) SELECT ?1, COALESCE(MAX(sequence), 0) + 1, ?2, ?3 FROM records WHERE session_id = ?1",
-        turso::params![id, now()?, serde_json::to_string(record).map_err(error)?],
-    )
-    .await
-    .map_err(error)?;
+async fn insert_records(
+    tx: &turso::transaction::Transaction<'_>,
+    id: &str,
+    records: &[StoredRecord],
+) -> Result<(), String> {
+    if records.is_empty() {
+        return Ok(());
+    }
+    // Seek the composite primary key once; wrapped MAX scans history in Turso 0.8.3.
+    let mut sequence = {
+        let mut rows = tx
+            .query(
+                "SELECT sequence FROM records WHERE session_id = ?1 ORDER BY sequence DESC LIMIT 1",
+                [id],
+            )
+            .await
+            .map_err(error)?;
+        match rows.next().await.map_err(error)? {
+            Some(row) => row.get::<i64>(0).map_err(error)?,
+            None => 0,
+        }
+    };
+    let mut insert = tx
+        .prepare(
+            "INSERT INTO records (session_id, sequence, timestamp, data) VALUES (?1, ?2, ?3, ?4)",
+        )
+        .await
+        .map_err(error)?;
+    for record in records {
+        sequence = sequence.checked_add(1).ok_or("record sequence overflow")?;
+        insert
+            .execute(turso::params![
+                id,
+                sequence,
+                now()?,
+                serde_json::to_string(record).map_err(error)?
+            ])
+            .await
+            .map_err(error)?;
+    }
     Ok(())
 }
 
@@ -121,9 +152,7 @@ pub(crate) async fn append(
     settings: Option<&Settings>,
 ) -> Result<(), String> {
     let tx = conn.transaction().await.map_err(error)?;
-    for record in records {
-        insert(&tx, id, record).await?;
-    }
+    insert_records(&tx, id, records).await?;
     tx.execute(
         "UPDATE sessions SET last_used_at = MAX(last_used_at, ?1) WHERE id = ?2",
         turso::params![now()?, id],
