@@ -12,6 +12,8 @@ mod heartbeat;
 mod metrics;
 #[path = "session_perf/mixed.rs"]
 mod mixed;
+#[path = "session_perf/paging.rs"]
+mod paging;
 #[path = "session_perf/payloads.rs"]
 mod payloads;
 #[path = "session_perf/reads.rs"]
@@ -99,6 +101,7 @@ async fn run() -> Result<()> {
     mixed::run(&root).await?;
     cancellation::run(&root).await?;
     checkpoints::run(&root).await?;
+    paging::run(&root).await?;
     println!(
         "{}",
         serde_json::json!({"total_seconds": start.elapsed().as_secs_f64()})
