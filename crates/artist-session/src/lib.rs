@@ -14,6 +14,7 @@ mod lifecycle;
 mod paths;
 mod queries;
 mod replay;
+mod replay_state;
 mod storage;
 mod transcript;
 
