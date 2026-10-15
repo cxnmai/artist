@@ -2,6 +2,8 @@
 //! Isolated, warm-cache microbenchmarks; never opens the default session store.
 #[path = "session_perf/cancellation.rs"]
 mod cancellation;
+#[path = "session_perf/checkpoints.rs"]
+mod checkpoints;
 #[path = "session_perf/concurrency.rs"]
 mod concurrency;
 #[path = "session_perf/heartbeat.rs"]
@@ -96,6 +98,7 @@ async fn run() -> Result<()> {
     concurrency::run(&root).await?;
     mixed::run(&root).await?;
     cancellation::run(&root).await?;
+    checkpoints::run(&root).await?;
     println!(
         "{}",
         serde_json::json!({"total_seconds": start.elapsed().as_secs_f64()})
