@@ -1,10 +1,9 @@
 //! Well-typed corruption of derived state must never invent canonical messages.
+use crate::checkpoint_fixture as fixture;
 use crate::{Result, settings};
 use artist_session::Session;
 use fs2::FileExt;
 use std::{fs::OpenOptions, path::Path};
-#[path = "checkpoint_fixture.rs"]
-mod fixture;
 
 async fn tamper(directory: &Path, id: &str, field: &str, payload: &str) -> Result<()> {
     let directory = directory.to_owned();

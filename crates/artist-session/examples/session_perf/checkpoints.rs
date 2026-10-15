@@ -8,9 +8,7 @@ use artist_core::{
 use artist_session::Session;
 use std::path::Path;
 
-#[path = "checkpoint_fixture.rs"]
-mod fixture;
-use fixture::assistant;
+use crate::checkpoint_fixture::{self as fixture, assistant};
 
 pub async fn run(root: &Path) -> Result<()> {
     let fixture::Fixture {

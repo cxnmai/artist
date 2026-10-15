@@ -4,6 +4,8 @@
 mod cache_integrity;
 #[path = "session_perf/cancellation.rs"]
 mod cancellation;
+#[path = "session_perf/checkpoint_fixture.rs"]
+mod checkpoint_fixture;
 #[path = "session_perf/checkpoints.rs"]
 mod checkpoints;
 #[path = "session_perf/concurrency.rs"]
