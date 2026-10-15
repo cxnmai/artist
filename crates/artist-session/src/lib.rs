@@ -15,6 +15,7 @@ mod paths;
 mod queries;
 mod replay;
 mod replay_state;
+mod resume_index;
 mod storage;
 mod transcript;
 
