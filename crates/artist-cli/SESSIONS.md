@@ -84,8 +84,13 @@ more work instead of silently continuing with potentially divergent live state.
 Turso's experimental multiprocess WAL is disabled. A short global OS lock covers
 each storage operation; all engine handles close before that lock is released.
 Different CLI/ACP sessions can interleave operations, without holding the database
-lock while models or tools run. A separate lifetime lock prevents competing
-writers for the same session. Readers use the same short storage lock.
+lock while models or tools run. Complete storage operations run on blocking workers,
+not the frontend executor. A separate lifetime lock prevents competing writers for
+the same session, including workers whose awaiting callers have been cancelled.
+Readers use the same operation lock. Checked WAL truncation runs when the WAL
+reaches 4 MiB on open; a large transaction can exceed that size until the next open.
+Full-history reads/resume hold the lock longer than small pages. See the
+[performance measurements and remaining limits](../artist-session/PERFORMANCE.md).
 
 A crash during streaming can lose the incomplete response. On resume, unresolved
 tool calls receive durable error results saying their execution outcome is unknown.
