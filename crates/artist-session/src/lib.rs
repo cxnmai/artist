@@ -8,6 +8,7 @@
 //! directory under `artist/sessions` (XDG data on Linux, Application Support on
 //! macOS, LOCALAPPDATA on Windows). Unix directories/files are private from creation.
 mod access;
+mod blocking;
 mod database;
 mod lifecycle;
 mod paths;
@@ -29,6 +30,7 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
+    sync::Arc,
 };
 use storage::StoredRecord;
 use tokio::sync::Mutex;
@@ -64,6 +66,7 @@ pub struct Session {
     /// The engine owns live conversation updates, except during `set_settings`.
     pub conversation: Conversation,
     writer: Mutex<Writer>,
-    // Dropped after the connection, never remove the lock file (inode identity matters).
-    _writer_lock: File,
+    // In-flight blocking operations retain this lock even if their caller is dropped.
+    // Never remove the file: its inode identity coordinates competing processes.
+    _writer_lock: Arc<File>,
 }
