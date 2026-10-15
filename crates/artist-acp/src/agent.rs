@@ -16,7 +16,6 @@ use std::{
 pub struct ArtistAgent {
     options: Options,
     initialized: Cell<bool>,
-    next_id: Cell<u64>,
     sessions: RefCell<HashMap<String, Rc<Session>>>,
     connection: RefCell<Option<Rc<AgentSideConnection>>>,
 }
@@ -26,7 +25,6 @@ impl ArtistAgent {
         Self {
             options,
             initialized: Cell::new(false),
-            next_id: Cell::new(0),
             sessions: RefCell::new(HashMap::new()),
             connection: RefCell::new(None),
         }
@@ -77,14 +75,8 @@ impl Agent for ArtistAgent {
         if !args.mcp_servers.is_empty() {
             return Err(invalid("MCP servers are not supported"));
         }
-        let session = Session::new(&self.options, args.cwd).await?;
-        let next = self
-            .next_id
-            .get()
-            .checked_add(1)
-            .ok_or_else(|| internal("session IDs exhausted"))?;
-        self.next_id.set(next);
-        let id = format!("artist-{next}");
+        let session = Session::new(&self.options, args.cwd, None).await?;
+        let id = session.store.id.clone();
         self.sessions
             .borrow_mut()
             .insert(id.clone(), Rc::new(session));

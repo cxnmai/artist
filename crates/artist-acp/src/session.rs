@@ -13,6 +13,7 @@ pub struct Session {
     reasoning: Option<String>,
     cwd: PathBuf,
     conversation: Mutex<Conversation>,
+    pub store: artist_session::Session,
     active: RefCell<Option<CancellationToken>>,
 }
 
@@ -25,20 +26,34 @@ pub fn invalid(message: impl ToString) -> Error {
 }
 
 impl Session {
-    pub async fn new(options: &Options, cwd: PathBuf) -> Result<Self> {
+    pub async fn new(options: &Options, cwd: PathBuf, resume: Option<&str>) -> Result<Self> {
         if !cwd.is_absolute() || !cwd.is_dir() {
             return Err(invalid("cwd must be an existing absolute directory"));
         }
+        let cwd = std::fs::canonicalize(cwd).map_err(internal)?;
         let runtime = Runtime::new_with_stderr(options.config.as_deref()).map_err(internal)?;
-        let model = runtime
-            .select_model(options.model.as_deref())
-            .map_err(internal)?;
-        let (_, registry) = runtime.model_registry().await.map_err(internal)?;
+        let directory = runtime.sessions_directory();
+        let saved = if let Some(id) = resume {
+            Some(artist_session::metadata(directory.as_deref(), id).await.map_err(internal)?)
+        } else {
+            None
+        };
+        let (provider, registry) = runtime.model_registry().await.map_err(internal)?;
+        if options.model.is_none() && saved.as_ref().is_some_and(|(_, settings)| settings.provider != provider) {
+            return Err(invalid("saved provider differs from configuration; select --model explicitly"));
+        }
+        let requested = options.model.as_deref().or_else(|| saved.as_ref().map(|(_, settings)| settings.model.as_str()));
+        let model = runtime.select_model(requested).map_err(internal)?;
         let info = registry
             .into_iter()
             .find(|info| info.id == model)
             .ok_or_else(|| internal(format!("model {model} is not in the provider registry")))?;
-        let reasoning = options.reasoning.clone().or(info.default_reasoning.clone());
+        let inherited_reasoning = if options.model.is_none() {
+            saved.as_ref().and_then(|(_, settings)| settings.reasoning.clone())
+        } else {
+            None
+        };
+        let reasoning = options.reasoning.clone().or(inherited_reasoning).or(info.default_reasoning.clone());
         if let Some(level) = &reasoning {
             if info
                 .reasoning_levels
@@ -50,16 +65,21 @@ impl Session {
                 )));
             }
         }
-        let mut conversation = Conversation::default();
-        runtime
-            .configure_conversation(&mut conversation, &cwd, &model)
-            .map_err(internal)?;
+        let mut initial = Conversation::default();
+        if resume.is_none() {
+            runtime.configure_conversation(&mut initial, &cwd, &model).map_err(internal)?;
+        }
+        let settings = artist_session::Settings { provider, model, reasoning: reasoning.clone() };
+        let mut store = artist_session::Session::open(directory.as_deref(), resume, &cwd, settings.clone(), initial).await.map_err(internal)?;
+        store.set_settings(settings).await.map_err(internal)?;
+        let conversation = std::mem::take(&mut store.conversation);
         Ok(Self {
             runtime,
             info,
             reasoning,
             cwd,
             conversation: Mutex::new(conversation),
+            store,
             active: RefCell::new(None),
         })
     }
@@ -103,6 +123,7 @@ impl Session {
             self.info.context_window,
             &self.cwd,
             &cancellation,
+            Some(&self.store),
             move |events| {
                 let _ = tx.send(events);
             },
