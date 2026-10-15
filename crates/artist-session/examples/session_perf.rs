@@ -1,11 +1,15 @@
 //! Run with: cargo run --release -p artist-session --example session_perf -- [new-data-root]
 //! Isolated, warm-cache microbenchmarks; never opens the default session store.
+#[path = "session_perf/cancellation.rs"]
+mod cancellation;
 #[path = "session_perf/concurrency.rs"]
 mod concurrency;
 #[path = "session_perf/heartbeat.rs"]
 mod heartbeat;
 #[path = "session_perf/metrics.rs"]
 mod metrics;
+#[path = "session_perf/mixed.rs"]
+mod mixed;
 #[path = "session_perf/payloads.rs"]
 mod payloads;
 #[path = "session_perf/reads.rs"]
@@ -90,6 +94,8 @@ async fn run() -> Result<()> {
     payloads::run(&root).await?;
     scaling::listing(&root).await?;
     concurrency::run(&root).await?;
+    mixed::run(&root).await?;
+    cancellation::run(&root).await?;
     println!(
         "{}",
         serde_json::json!({"total_seconds": start.elapsed().as_secs_f64()})
