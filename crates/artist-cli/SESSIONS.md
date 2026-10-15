@@ -10,7 +10,10 @@ artist -p "Continue the investigation" -r <session-id> --config /path/to/config.
 Multiple prompts in one invocation share the session. Normal CLI output remains
 frontend-safe NDJSON; session IDs are not printed. Session discovery is available
 through the `artist-session` metadata/list API and the local database, not an
-implicit "continue latest" behavior.
+implicit "continue latest" behavior. `list(directory, cwd)` uses an indexed cwd
+query; `transcript(directory, id, after, limit)` provides safe, cursor-based
+transcript pages without taking the session's writer lock. `limit` bounds scanned
+records, so callers must follow `next_after` even when a page has no messages.
 
 ## Location
 
@@ -75,7 +78,14 @@ responses and their usage anchors are committed together before tool execution;
 each tool result is committed before proceeding. Compaction/settings changes are
 committed before use. Terminal state is committed before reporting turn completion.
 Writes use transactions with FULL synchronous durability. Persistence failure
-stops further work instead of silently running with unsaved history.
+or a dropped persistence future poisons that writer: reopen/replay before doing
+more work instead of silently continuing with potentially divergent live state.
+
+Turso's experimental multiprocess WAL is disabled. A short global OS lock covers
+each storage operation; all engine handles close before that lock is released.
+Different CLI/ACP sessions can interleave operations, without holding the database
+lock while models or tools run. A separate lifetime lock prevents competing
+writers for the same session. Readers use the same short storage lock.
 
 A crash during streaming can lose the incomplete response. On resume, unresolved
 tool calls receive durable error results saying their execution outcome is unknown.
