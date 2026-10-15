@@ -49,6 +49,7 @@ pub(crate) async fn open(directory: &Path, create: bool) -> Result<Database, Str
     let mut connection = engine.connect().map_err(error)?;
     storage::configure(&connection).await?;
     schema(&mut connection).await?;
+    checkpoint(&connection, &directory.join("sessions.db-wal")).await?;
     paths::private_dir(&directory.join("locks"))?;
     paths::sync_dir(&directory)?;
     if let Some(parent) = directory.parent() {
@@ -59,6 +60,46 @@ pub(crate) async fn open(directory: &Path, create: bool) -> Result<Database, Str
         _engine: engine,
         _lock: lock,
     })
+}
+
+async fn checkpoint(conn: &turso::Connection, wal: &Path) -> Result<(), String> {
+    // Reopening Turso 0.8.3 resets its in-memory backfill count. Default PASSIVE
+    // auto-checkpoints backfill pages but cannot bound this reopen-per-op WAL.
+    // Reclaim at 4 MiB before serving the next operation, under the global lock;
+    // small reads only stat the WAL. One large write can exceed this threshold
+    // until the next open. Keep FULL synchronous mode for checkpoint durability.
+    const WAL_CHECKPOINT_BYTES: u64 = 4 * 1024 * 1024;
+    if std::fs::metadata(wal).map_err(error)?.len() < WAL_CHECKPOINT_BYTES {
+        return Ok(());
+    }
+    let mut rows = conn
+        .query("PRAGMA wal_checkpoint(TRUNCATE)", ())
+        .await
+        .map_err(error)?;
+    let row = rows
+        .next()
+        .await
+        .map_err(error)?
+        .ok_or("missing Turso WAL checkpoint result")?;
+    // Turso reports checkpoint errors as busy=1 (other columns can be NULL).
+    if row.get::<i64>(0).map_err(error)? != 0 {
+        return Err("Turso WAL checkpoint failed or was busy".into());
+    }
+    let log = row.get::<i64>(1).map_err(error)?;
+    let checkpointed = row.get::<i64>(2).map_err(error)?;
+    // Unlike SQLite, Turso 0.8.3 can report pre-truncation frame counts here.
+    if log < 0 || checkpointed != log {
+        return Err(format!(
+            "incomplete Turso WAL checkpoint: log={log}, checkpointed={checkpointed}"
+        ));
+    }
+    if rows.next().await.map_err(error)?.is_some() {
+        return Err("unexpected Turso WAL checkpoint result".into());
+    }
+    if std::fs::metadata(wal).map_err(error)?.len() != 0 {
+        return Err("Turso WAL checkpoint did not truncate the WAL".into());
+    }
+    Ok(())
 }
 
 async fn schema(conn: &mut turso::Connection) -> Result<(), String> {
