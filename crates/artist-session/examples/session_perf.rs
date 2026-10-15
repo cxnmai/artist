@@ -1,5 +1,7 @@
 //! Run with: cargo run --release -p artist-session --example session_perf -- [new-data-root]
 //! Isolated, warm-cache microbenchmarks; never opens the default session store.
+#[path = "session_perf/cache_integrity.rs"]
+mod cache_integrity;
 #[path = "session_perf/cancellation.rs"]
 mod cancellation;
 #[path = "session_perf/checkpoints.rs"]
@@ -101,6 +103,7 @@ async fn run() -> Result<()> {
     mixed::run(&root).await?;
     cancellation::run(&root).await?;
     checkpoints::run(&root).await?;
+    cache_integrity::run(&root).await?;
     paging::run(&root).await?;
     println!(
         "{}",
