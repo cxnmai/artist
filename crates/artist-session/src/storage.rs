@@ -153,6 +153,18 @@ pub(crate) async fn append(
 ) -> Result<(), String> {
     let tx = conn.transaction().await.map_err(error)?;
     insert_records(&tx, id, records).await?;
+    if records.iter().any(|record| {
+        matches!(
+            record,
+            StoredRecord::Journal {
+                record: SessionRecord::Compaction { .. }
+            }
+        )
+    }) {
+        // First checkpoint replays the prefix once; later ones seek the existing
+        // checkpoint and scan only its suffix, including this inserted batch.
+        crate::resume_index::refresh(&tx, id, false).await?;
+    }
     tx.execute(
         "UPDATE sessions SET last_used_at = MAX(last_used_at, ?1) WHERE id = ?2",
         turso::params![now()?, id],

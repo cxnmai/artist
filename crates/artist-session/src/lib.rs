@@ -19,7 +19,7 @@ mod resume_index;
 mod storage;
 mod transcript;
 
-pub use access::{list, metadata};
+pub use access::{list, metadata, rebuild_resume_index};
 pub use transcript::{TranscriptItem, TranscriptPage, transcript};
 
 use artist_core::{

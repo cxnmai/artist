@@ -37,7 +37,7 @@ pub(crate) fn apply(conversation: &mut Conversation, record: SessionRecord) {
 }
 
 pub(crate) async fn load(
-    conn: &turso::Connection,
+    conn: &mut turso::Connection,
     id: &str,
 ) -> Result<
     (
@@ -48,7 +48,9 @@ pub(crate) async fn load(
     ),
     String,
 > {
-    let state = scan(conn, id, crate::replay_state::ReplayState::default()).await?;
+    let tx = conn.transaction().await.map_err(storage::error)?;
+    let state = crate::resume_index::refresh(&tx, id, false).await?;
+    tx.commit().await.map_err(storage::error)?;
     let recovery = state.recovery();
     let (cwd, settings) = state.header.ok_or("missing session header record")?;
     Ok((cwd, settings, state.conversation, recovery))

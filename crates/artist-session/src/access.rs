@@ -26,6 +26,26 @@ pub async fn list(directory: Option<&Path>, cwd: &Path) -> Result<Vec<SessionInf
     .await
 }
 
+/// Rebuild the derived resume index by replaying canonical history in full.
+/// This never changes messages or acquires the session's lifetime writer lock.
+pub async fn rebuild_resume_index(directory: Option<&Path>, id: &str) -> Result<(), String> {
+    let directory = paths::directory(directory)?;
+    paths::lock_path(&directory, id)?;
+    let id = id.to_owned();
+    blocking::run(move || async move {
+        let mut database = database::open(&directory, false).await?;
+        storage::info(&database.connection, &id).await?;
+        let tx = database
+            .connection
+            .transaction()
+            .await
+            .map_err(storage::error)?;
+        crate::resume_index::refresh(&tx, &id, true).await?;
+        tx.commit().await.map_err(storage::error)
+    })
+    .await
+}
+
 impl Session {
     async fn persist(
         &self,
