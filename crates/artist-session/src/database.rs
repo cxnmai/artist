@@ -100,21 +100,26 @@ async fn checkpoint(conn: &turso::Connection, wal: &Path) -> Result<(), String> 
 
 async fn schema(conn: &mut turso::Connection) -> Result<(), String> {
     // The operation OS lock serializes this short schema transaction.
-    match storage::integer_pragma(conn, "PRAGMA user_version").await? {
-        1 => return Ok(()),
-        0 => {}
+    let version = storage::integer_pragma(conn, "PRAGMA user_version").await?;
+    match version {
+        2 => return Ok(()),
+        0 | 1 => {}
         version => return Err(format!("unsupported session schema version: {version}")),
     }
     let tx = conn.transaction().await.map_err(error)?;
-    tx.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, started_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL, settings TEXT NOT NULL)", ()).await.map_err(error)?;
-    tx.execute(
-        "CREATE INDEX sessions_cwd_last_used ON sessions (cwd, last_used_at DESC)",
-        (),
-    )
-    .await
-    .map_err(error)?;
-    tx.execute("CREATE TABLE records (session_id TEXT NOT NULL, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (session_id, sequence))", ()).await.map_err(error)?;
-    tx.execute("PRAGMA user_version = 1", ())
+    if version == 0 {
+        tx.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, started_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL, settings TEXT NOT NULL)", ()).await.map_err(error)?;
+        tx.execute(
+            "CREATE INDEX sessions_cwd_last_used ON sessions (cwd, last_used_at DESC)",
+            (),
+        )
+        .await
+        .map_err(error)?;
+        tx.execute("CREATE TABLE records (session_id TEXT NOT NULL, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (session_id, sequence))", ()).await.map_err(error)?;
+    }
+    // v1 archives are indexed lazily; migration never scans canonical history.
+    tx.execute("CREATE TABLE resume_points (session_id TEXT PRIMARY KEY, sequence INTEGER NOT NULL, settings TEXT NOT NULL, pending TEXT NOT NULL)", ()).await.map_err(error)?;
+    tx.execute("PRAGMA user_version = 2", ())
         .await
         .map_err(error)?;
     tx.commit().await.map_err(error)

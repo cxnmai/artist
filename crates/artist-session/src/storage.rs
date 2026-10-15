@@ -74,7 +74,7 @@ pub(crate) async fn integer_pragma(conn: &Connection, sql: &str) -> Result<i64, 
 
 pub(crate) async fn check_version(conn: &Connection) -> Result<(), String> {
     let version = integer_pragma(conn, "PRAGMA user_version").await?;
-    if version != 1 {
+    if version != 2 {
         return Err(format!("unsupported session schema version: {version}"));
     }
     Ok(())
