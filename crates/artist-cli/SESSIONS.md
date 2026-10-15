@@ -48,9 +48,15 @@ history. Timestamps use Unix epoch milliseconds.
 The transcript consists of original messages and tool results. A compaction
 record stores the replacement context projection and its summary at a particular
 history boundary. It does not delete or overwrite earlier messages. Continuation
-replays checkpoints and subsequent records; transcript display still sees all
-original messages. Frontends must use safe display projections, not expose opaque
-provider replay data.
+seeks the latest indexed checkpoint and replays only its suffix; transcript display
+still sees all original messages. A derived `resume_points` index caches the
+boundary's settings and unresolved tool IDs with an integrity checksum. Its context
+comes from the original canonical compaction record, not a second authoritative
+copy. Compaction and its index update commit together. Missing or damaged entries
+fall back to canonical replay and repair the index. The Rust API
+`rebuild_resume_index(directory, id)` explicitly rebuilds this derived state without
+changing canonical messages. Frontends must use safe display projections, not
+expose opaque provider replay data.
 
 ## Continuation
 
@@ -68,7 +74,15 @@ Artist does not silently substitute another model.
 
 ACP `session/new` creates a durable session; `session/load` restores one and sends
 the original frontend-safe transcript before replying. Both frontends use the
-same store and engine persistence boundaries.
+same store and engine persistence boundaries. ACP replay reads 256 scanned records
+per page and releases the storage lock between pages and notifications, including
+when a page has only metadata and no visible messages.
+
+Schema v1/v2 databases upgrade automatically to v3 under the storage lock. Migration
+does not scan every session; a legacy session's first resume may scan its archive
+once to build the index. Subsequent compacted resumes seek directly to it. Sessions
+without a compaction still load their full active context. Older binaries cannot
+open the newer schema: restart CLI/ACP processes after updating Artist.
 
 ## Durability
 
@@ -89,7 +103,8 @@ not the frontend executor. A separate lifetime lock prevents competing writers f
 the same session, including workers whose awaiting callers have been cancelled.
 Readers use the same operation lock. Checked WAL truncation runs when the WAL
 reaches 4 MiB on open; a large transaction can exceed that size until the next open.
-Full-history reads/resume hold the lock longer than small pages. See the
+Whole-transcript reads, uncompacted resumes, index rebuilding, and large active
+suffixes can still hold the lock longer than small pages. See the
 [performance measurements and remaining limits](../artist-session/PERFORMANCE.md).
 
 A crash during streaming can lose the incomplete response. On resume, unresolved

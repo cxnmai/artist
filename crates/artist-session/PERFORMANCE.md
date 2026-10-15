@@ -96,17 +96,46 @@ indexed discovery, and paged chat display. Appends and small reads no longer sca
 with total session history in the measured range. Do not weaken FULL durability or
 enable experimental multiprocess WAL merely to improve these figures.
 
-**Resume is still linear in the full archive, even after compaction.** It rebuilds
-history before applying checkpoints; it does not seek directly to the active
-checkpoint. The confirmation run measured another session's append at **364 ms
-p95 / 372 ms max** while three 100,000-message resumes competed for the global
-lock. Whole-transcript reads and ACP's current whole-history replay have the same
-head-of-line blocking risk, though the frontend executor itself is no longer
-blocked by native IO.
+## Indexed checkpoint followup
 
-The next architectural improvement should be an indexed active-context checkpoint
-with the settings/recovery state needed to resume from its suffix, plus paged ACP
-replay. Preserve the canonical records; any projection index must be transactionally
-consistent and rebuildable. At very high concurrency, use bounded storage work
-queues and cancellation-aware lock waits. No claim is made that the current
-implementation has solved large-history resume or arbitrary concurrent workloads.
+The earlier implementation still scanned the full archive after compaction. It
+measured another session's append at **364 ms p95 / 372 ms max** while three
+100,000-message resumes competed for the global lock. This is now addressed by an
+indexed compaction boundary plus suffix-only replay and paged ACP notifications.
+
+With the integrity-protected index (`dc81e62`) and the same release harness:
+
+| Operation | Before index | Indexed p50 | Indexed p95 |
+|---|---:|---:|---:|
+| Compacted resume, 10,000 messages | 48 ms median | 2.53 ms | 2.62 ms |
+| Compacted resume, 100,000 messages | 362 ms median | 2.56 ms | 2.78 ms |
+| Append competing with large compacted resumes | 364 ms p95 | 2.53 ms | 2.91 ms |
+
+The competing-write maximum fell from ~372 ms to ~4.14 ms in the final run. The
+index retains settings and unresolved-tool state at the canonical checkpoint,
+not at the end of a later batch. Its SHA256 checksum detects derived-state
+corruption; malformed, missing, or damaged entries rebuild from canonical records.
+This is corruption detection, not authentication against deliberate DB rewriting.
+Compaction and its index update commit atomically. No original message is removed.
+
+Schema v1/v2 upgrades to v3 without scanning every archive. The first resume of a
+legacy/missing index may still scan that archive once; subsequent compacted
+resumes seek the checkpoint directly. Creating the first compaction index or
+explicitly rebuilding it also requires a canonical scan. Later compactions can
+reuse the prior boundary. These one-time maintenance costs are not eliminated.
+
+**Uncompacted** resume still needs the complete active context (~351 ms at 100,000
+messages), and the explicit whole-transcript API still reads the entire archive.
+ACP now reads 256 scanned records per page, releasing the database lock between
+pages and notifications; total transfer time remains proportional to displayed
+history. Oversized individual records, WAL maintenance, and an enormous active
+suffix can still cause outliers. At very high concurrency, bounded storage queues
+and cancellation-aware lock waits remain worthwhile future work.
+
+Regression probes cover model/reasoning transitions, usage, interrupted tools,
+reused tool IDs, repeated compactions, suffix records in the checkpoint transaction,
+full index rebuilding, well-typed cache corruption, and metadata-only transcript
+pages. Separate isolated ACP checks verified ordered delivery of 1,041 messages
+through metadata-only pages and concurrent session creation. Isolated v1/v2
+migration checks verified checksums against independent SHA256 calculations and
+confirmed that cache damage cannot invent or lose canonical messages.
