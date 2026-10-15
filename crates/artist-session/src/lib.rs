@@ -16,6 +16,7 @@ mod queries;
 mod replay;
 mod replay_state;
 mod resume_index;
+mod resume_integrity;
 mod storage;
 mod transcript;
 

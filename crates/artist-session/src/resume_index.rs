@@ -6,15 +6,21 @@ use crate::{
 use artist_core::journal::SessionRecord;
 use turso::Connection;
 
-fn decode_point(row: &turso::Row) -> Option<ResumePoint> {
+fn decode_point(row: &turso::Row, id: &str) -> Option<ResumePoint> {
     let sequence = row.get::<i64>(0).ok()?;
     if sequence <= 1 {
         return None;
     }
+    let settings = row.get::<String>(1).ok()?;
+    let pending = row.get::<String>(2).ok()?;
+    let checksum = row.get::<String>(3).ok()?;
+    if checksum != crate::resume_integrity::checksum(id, sequence, &settings, &pending).ok()? {
+        return None;
+    }
     Some(ResumePoint {
         sequence,
-        settings: serde_json::from_str(&row.get::<String>(1).ok()?).ok()?,
-        pending: serde_json::from_str(&row.get::<String>(2).ok()?).ok()?,
+        settings: serde_json::from_str(&settings).ok()?,
+        pending: serde_json::from_str(&pending).ok()?,
     })
 }
 
@@ -40,7 +46,7 @@ async fn record(
 async fn seed(conn: &Connection, id: &str) -> Result<Option<ReplayState>, String> {
     let row = conn
         .query(
-            "SELECT sequence, settings, pending FROM resume_points WHERE session_id = ?1",
+            "SELECT sequence, settings, pending, checksum FROM resume_points WHERE session_id = ?1",
             [id],
         )
         .await
@@ -48,7 +54,7 @@ async fn seed(conn: &Connection, id: &str) -> Result<Option<ReplayState>, String
         .next()
         .await
         .map_err(error)?;
-    let Some(point) = row.as_ref().and_then(decode_point) else {
+    let Some(point) = row.as_ref().and_then(|row| decode_point(row, id)) else {
         return Ok(None);
     };
     // A malformed canonical record is an error, not a cache miss.
@@ -74,9 +80,12 @@ async fn seed(conn: &Connection, id: &str) -> Result<Option<ReplayState>, String
 
 async fn save(conn: &Connection, id: &str, point: Option<&ResumePoint>) -> Result<(), String> {
     if let Some(point) = point {
+        let settings = serde_json::to_string(&point.settings).map_err(error)?;
+        let pending = serde_json::to_string(&point.pending).map_err(error)?;
+        let checksum = crate::resume_integrity::checksum(id, point.sequence, &settings, &pending)?;
         conn.execute(
-            "INSERT INTO resume_points (session_id, sequence, settings, pending) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (session_id) DO UPDATE SET sequence = excluded.sequence, settings = excluded.settings, pending = excluded.pending",
-            turso::params![id, point.sequence, serde_json::to_string(&point.settings).map_err(error)?, serde_json::to_string(&point.pending).map_err(error)?],
+            "INSERT INTO resume_points (session_id, sequence, settings, pending, checksum) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (session_id) DO UPDATE SET sequence = excluded.sequence, settings = excluded.settings, pending = excluded.pending, checksum = excluded.checksum",
+            turso::params![id, point.sequence, settings, pending, checksum],
         ).await.map_err(error)?;
     } else {
         conn.execute("DELETE FROM resume_points WHERE session_id = ?1", [id])

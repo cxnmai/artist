@@ -102,8 +102,8 @@ async fn schema(conn: &mut turso::Connection) -> Result<(), String> {
     // The operation OS lock serializes this short schema transaction.
     let version = storage::integer_pragma(conn, "PRAGMA user_version").await?;
     match version {
-        2 => return Ok(()),
-        0 | 1 => {}
+        3 => return Ok(()),
+        0..=2 => {}
         version => return Err(format!("unsupported session schema version: {version}")),
     }
     let tx = conn.transaction().await.map_err(error)?;
@@ -117,9 +117,16 @@ async fn schema(conn: &mut turso::Connection) -> Result<(), String> {
         .map_err(error)?;
         tx.execute("CREATE TABLE records (session_id TEXT NOT NULL, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (session_id, sequence))", ()).await.map_err(error)?;
     }
-    // v1 archives are indexed lazily; migration never scans canonical history.
-    tx.execute("CREATE TABLE resume_points (session_id TEXT PRIMARY KEY, sequence INTEGER NOT NULL, settings TEXT NOT NULL, pending TEXT NOT NULL)", ()).await.map_err(error)?;
-    tx.execute("PRAGMA user_version = 2", ())
+    // Existing archives are indexed lazily; migration never scans history.
+    if version < 2 {
+        tx.execute("CREATE TABLE resume_points (session_id TEXT PRIMARY KEY, sequence INTEGER NOT NULL, settings TEXT NOT NULL, pending TEXT NOT NULL, checksum TEXT NOT NULL)", ()).await.map_err(error)?;
+    } else {
+        // v2 entries lack integrity protection: NULL forces canonical rebuilding.
+        tx.execute("ALTER TABLE resume_points ADD COLUMN checksum TEXT", ())
+            .await
+            .map_err(error)?;
+    }
+    tx.execute("PRAGMA user_version = 3", ())
         .await
         .map_err(error)?;
     tx.commit().await.map_err(error)
