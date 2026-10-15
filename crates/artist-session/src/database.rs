@@ -20,14 +20,10 @@ pub(crate) async fn open(directory: &Path, create: bool) -> Result<Database, Str
     }
     let directory = std::fs::canonicalize(directory).map_err(error)?;
     let lock_path = directory.join("database.lock");
-    let lock = tokio::task::spawn_blocking(move || {
-        let lock = paths::private_file(&lock_path, false)?;
-        lock.lock_exclusive()
-            .map_err(|e| format!("cannot lock session database: {e}"))?;
-        Ok::<_, String>(lock)
-    })
-    .await
-    .map_err(error)??;
+    // All callers run the complete operation on a blocking storage worker.
+    let lock = paths::private_file(&lock_path, false)?;
+    lock.lock_exclusive()
+        .map_err(|e| format!("cannot lock session database: {e}"))?;
     let path = directory.join("sessions.db");
     if !path.exists() {
         if !create {
