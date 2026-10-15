@@ -8,6 +8,7 @@ use crate::context::{
 use crate::context_usage::{ContextUsage, UsageAnchor};
 use crate::display::{DisplayEntry, DisplayModelEvent};
 use crate::event::ModelEvent;
+use crate::journal::{self, Journal, SessionRecord};
 use crate::response::ResponseAccumulator;
 use crate::tools::{ToolDefinition, ToolExecutor, record_assistant};
 use serde::Serialize;
@@ -109,10 +110,11 @@ pub async fn run_turn(
     max_model_calls: usize,
     context_window: Option<u64>,
     cancellation: &CancellationToken,
+    journal: Option<&dyn Journal>,
     mut prepare: impl FnMut(&Conversation) -> Result<TurnRequest, String>,
     mut emit: impl FnMut(Vec<AgentEvent>),
 ) -> Result<TurnOutcome, String> {
-    let outcome = run_turn_inner(
+    let mut outcome = run_turn_inner(
         conversation,
         prompt,
         model,
@@ -121,10 +123,19 @@ pub async fn run_turn(
         max_model_calls,
         context_window,
         cancellation,
+        journal,
         &mut prepare,
         &mut emit,
     )
     .await;
+    let status = match &outcome {
+        Ok(TurnOutcome::Completed) => "completed",
+        Ok(TurnOutcome::Cancelled) => "cancelled",
+        Err(_) => "error",
+    };
+    if let Err(error) = journal::append(journal, SessionRecord::Terminal { outcome: status.into() }).await {
+        outcome = Err(error);
+    }
     let terminal = match &outcome {
         Ok(TurnOutcome::Completed) => AgentEvent::Done,
         Ok(TurnOutcome::Cancelled) => AgentEvent::Cancelled,
@@ -145,12 +156,13 @@ async fn run_turn_inner(
     max_model_calls: usize,
     context_window: Option<u64>,
     cancellation: &CancellationToken,
+    journal: Option<&dyn Journal>,
     prepare: &mut impl FnMut(&Conversation) -> Result<TurnRequest, String>,
     emit: &mut impl FnMut(Vec<AgentEvent>),
 ) -> Result<TurnOutcome, String> {
-    conversation.entries.push(ContextEntry::User {
-        text: prompt.clone(),
-    });
+    let entry = ContextEntry::User { text: prompt.clone() };
+    journal::append(journal, SessionRecord::Message { entry: entry.clone() }).await?;
+    conversation.entries.push(entry);
     emit(vec![AgentEvent::User { text: prompt }]);
     if let Some(usage) = context_window.and_then(|window| conversation.context_usage(window)) {
         emit(vec![AgentEvent::ContextUsage { usage }]);
@@ -172,6 +184,11 @@ async fn run_turn_inner(
             result.validate(conversation)?;
             let mut replacement = result.context;
             replacement.last_usage = None;
+            journal::append(journal, SessionRecord::Compaction {
+                context: replacement.clone(),
+                summary: result.summary.clone(),
+                removed_entries: result.removed_entries,
+            }).await?;
             *conversation = replacement;
             emit(vec![AgentEvent::Compacted {
                 summary: result.summary,
@@ -238,32 +255,34 @@ async fn run_turn_inner(
             return Ok(TurnOutcome::Cancelled);
         }
         let has_calls = matches!(&assistant, ContextEntry::Assistant { blocks } if blocks.iter().any(|block| matches!(block, AssistantBlock::ToolCall { .. })));
+        journal::append(journal, SessionRecord::Message { entry: assistant.clone() }).await?;
+        let assistant_index = conversation.entries.len();
+        if let Some((input, output, total)) = usage {
+            let anchor = UsageAnchor {
+                entry_index: assistant_index,
+                tokens: total.filter(|tokens| *tokens > 0)
+                    .unwrap_or_else(|| input.saturating_add(output)),
+            };
+            journal::append(journal, SessionRecord::Usage { anchor: Some(anchor.clone()) }).await?;
+            conversation.last_usage = Some(anchor);
+        }
         emit(vec![AgentEvent::Assistant {
             entry: DisplayEntry::from(&assistant),
         }]);
-        let assistant_index = conversation.entries.len();
         let interrupted = record_assistant(
             conversation,
             assistant,
             executor,
             cwd,
             cancellation,
+            journal,
             &mut |entry| {
                 emit(vec![AgentEvent::ToolResult {
                     entry: DisplayEntry::from(entry),
                 }]);
             },
         )
-        .await
-        .expect("response accumulator produced an assistant entry");
-        if let Some((input, output, total)) = usage {
-            conversation.last_usage = Some(UsageAnchor {
-                entry_index: assistant_index,
-                tokens: total
-                    .filter(|tokens| *tokens > 0)
-                    .unwrap_or_else(|| input.saturating_add(output)),
-            });
-        }
+        .await?;
         if let Some(usage) = context_window.and_then(|window| conversation.context_usage(window)) {
             emit(vec![AgentEvent::ContextUsage { usage }]);
         }

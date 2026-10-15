@@ -2,6 +2,7 @@
 
 use crate::cancellation::CancellationToken;
 use crate::context::{AssistantBlock, ContextEntry, Conversation};
+use crate::journal::{self, Journal, SessionRecord};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;
@@ -52,10 +53,11 @@ pub async fn record_assistant(
     executor: &dyn ToolExecutor,
     cwd: &Path,
     cancellation: &CancellationToken,
+    journal: Option<&dyn Journal>,
     on_result: &mut dyn FnMut(&ContextEntry),
-) -> Result<bool, &'static str> {
+) -> Result<bool, String> {
     let ContextEntry::Assistant { blocks } = assistant else {
-        return Err("expected an assistant entry");
+        return Err("expected an assistant entry".into());
     };
     let calls: Vec<_> = blocks
         .iter()
@@ -94,8 +96,9 @@ pub async fn record_assistant(
             text: output.text,
             is_error: output.is_error,
         };
-        on_result(&result);
+        journal::append(journal, SessionRecord::Message { entry: result.clone() }).await?;
         conversation.entries.push(result);
+        on_result(conversation.entries.last().expect("result appended"));
     }
     Ok(cancelled || cancellation.is_cancelled())
 }
