@@ -9,7 +9,23 @@ impl Session {
         initial: Conversation,
     ) -> Result<Self, String> {
         let directory = paths::directory(directory)?;
+        let resume = resume.map(str::to_owned);
+        let cwd = cwd.to_owned();
+        blocking::run(move || async move {
+            Self::open_inner(directory, resume, cwd, settings, initial).await
+        })
+        .await
+    }
+
+    async fn open_inner(
+        directory: PathBuf,
+        resume: Option<String>,
+        cwd: PathBuf,
+        settings: Settings,
+        initial: Conversation,
+    ) -> Result<Self, String> {
         let id = resume
+            .as_deref()
             .map(str::to_owned)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let lock_path = paths::lock_path(&directory, &id)?;
@@ -80,7 +96,7 @@ impl Session {
                 directory,
                 failed: false,
             }),
-            _writer_lock: lock,
+            _writer_lock: Arc::new(lock),
         })
     }
 }

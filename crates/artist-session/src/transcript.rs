@@ -1,5 +1,5 @@
 use crate::{
-    database, paths,
+    blocking, database, paths,
     storage::{self, StoredRecord},
 };
 use artist_core::{display::DisplayEntry, journal::SessionRecord};
@@ -30,10 +30,20 @@ pub async fn transcript(
 ) -> Result<TranscriptPage, String> {
     let directory = paths::directory(directory)?;
     paths::lock_path(&directory, id)?;
+    let id = id.to_owned();
+    blocking::run(move || async move { page_inner(directory, id, after, limit).await }).await
+}
+
+async fn page_inner(
+    directory: std::path::PathBuf,
+    id: String,
+    after: i64,
+    limit: u32,
+) -> Result<TranscriptPage, String> {
     let database = database::open(&directory, false).await?;
-    storage::info(&database.connection, id).await?;
+    storage::info(&database.connection, &id).await?;
     let limit = limit.clamp(1, 1000);
-    let records = storage::page(&database.connection, id, after.max(0), limit).await?;
+    let records = storage::page(&database.connection, &id, after.max(0), limit).await?;
     let next_after = if records.len() == limit as usize {
         records.last().map(|(sequence, _)| *sequence)
     } else {
