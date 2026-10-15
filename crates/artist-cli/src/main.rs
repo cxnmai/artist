@@ -78,7 +78,7 @@ async fn main() -> ExitCode {
         }
     };
     let inherited_reasoning = if model.is_none() {
-        saved.as_ref().and_then(|(_, settings)| settings.reasoning.clone())
+        saved.as_ref().map(|(_, settings)| settings.reasoning.clone())
     } else {
         None
     };
@@ -89,7 +89,7 @@ async fn main() -> ExitCode {
         });
         return ExitCode::FAILURE;
     };
-    let level = reasoning.or(inherited_reasoning).or(info.default_reasoning.clone());
+    let level = reasoning.or_else(|| inherited_reasoning.unwrap_or_else(|| info.default_reasoning.clone()));
     if let Some(level) = &level {
         if info
             .reasoning_levels
@@ -137,6 +137,10 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if saved.as_ref().is_some_and(|(_, expected)| session.settings != *expected) {
+        emit(AgentEvent::Error { message: "session settings changed while opening; retry resume".into() });
+        return ExitCode::FAILURE;
+    }
     if let Err(message) = session.set_settings(settings).await {
         emit(AgentEvent::Error { message });
         return ExitCode::FAILURE;

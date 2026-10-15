@@ -49,11 +49,11 @@ impl Session {
             .find(|info| info.id == model)
             .ok_or_else(|| internal(format!("model {model} is not in the provider registry")))?;
         let inherited_reasoning = if options.model.is_none() {
-            saved.as_ref().and_then(|(_, settings)| settings.reasoning.clone())
+            saved.as_ref().map(|(_, settings)| settings.reasoning.clone())
         } else {
             None
         };
-        let reasoning = options.reasoning.clone().or(inherited_reasoning).or(info.default_reasoning.clone());
+        let reasoning = options.reasoning.clone().or_else(|| inherited_reasoning.unwrap_or_else(|| info.default_reasoning.clone()));
         if let Some(level) = &reasoning {
             if info
                 .reasoning_levels
@@ -71,6 +71,9 @@ impl Session {
         }
         let settings = artist_session::Settings { provider, model, reasoning: reasoning.clone() };
         let mut store = artist_session::Session::open(directory.as_deref(), resume, &cwd, settings.clone(), initial).await.map_err(internal)?;
+        if saved.as_ref().is_some_and(|(_, expected)| store.settings != *expected) {
+            return Err(invalid("session settings changed while opening; retry load"));
+        }
         store.set_settings(settings).await.map_err(internal)?;
         let conversation = std::mem::take(&mut store.conversation);
         Ok(Self {
