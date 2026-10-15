@@ -1,0 +1,84 @@
+use crate::{
+    paths,
+    storage::{self, error},
+};
+use fs2::FileExt;
+use std::{fs::File, path::Path};
+
+pub(crate) struct Database {
+    pub connection: turso::Connection,
+    // Keep the database open before releasing the OS lock.
+    _engine: turso::Database,
+    _lock: File,
+}
+
+pub(crate) async fn open(directory: &Path, create: bool) -> Result<Database, String> {
+    if create {
+        paths::private_dir(directory)?;
+    } else {
+        paths::restrict(directory, true)?;
+    }
+    let directory = std::fs::canonicalize(directory).map_err(error)?;
+    let lock_path = directory.join("database.lock");
+    let lock = tokio::task::spawn_blocking(move || {
+        let lock = paths::private_file(&lock_path, false)?;
+        lock.lock_exclusive()
+            .map_err(|e| format!("cannot lock session database: {e}"))?;
+        Ok::<_, String>(lock)
+    })
+    .await
+    .map_err(error)??;
+    let path = directory.join("sessions.db");
+    if !path.exists() {
+        if !create {
+            return Err("session database does not exist".into());
+        }
+        paths::private_file(&path, true)?;
+    }
+    paths::restrict(&path, false)?;
+    // Turso otherwise creates its WAL with ambient umask permissions. Precreate
+    // it privately while holding the operation lock, before opening the engine.
+    paths::private_file(&directory.join("sessions.db-wal"), false)?;
+    // Default Turso WAL is single-process. Experimental multiprocess WAL is
+    // deliberately not enabled: this short OS lock covers every reader and writer.
+    let engine =
+        turso::Builder::new_local(path.to_str().ok_or("session database path is not UTF-8")?)
+            .build()
+            .await
+            .map_err(error)?;
+    let mut connection = engine.connect().map_err(error)?;
+    storage::configure(&connection).await?;
+    schema(&mut connection).await?;
+    paths::private_dir(&directory.join("locks"))?;
+    paths::sync_dir(&directory)?;
+    if let Some(parent) = directory.parent() {
+        paths::sync_dir(parent)?;
+    }
+    Ok(Database {
+        connection,
+        _engine: engine,
+        _lock: lock,
+    })
+}
+
+async fn schema(conn: &mut turso::Connection) -> Result<(), String> {
+    // The operation OS lock serializes this short schema transaction.
+    match storage::integer_pragma(conn, "PRAGMA user_version").await? {
+        1 => return Ok(()),
+        0 => {}
+        version => return Err(format!("unsupported session schema version: {version}")),
+    }
+    let tx = conn.transaction().await.map_err(error)?;
+    tx.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, started_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL, settings TEXT NOT NULL)", ()).await.map_err(error)?;
+    tx.execute(
+        "CREATE INDEX sessions_cwd_last_used ON sessions (cwd, last_used_at DESC)",
+        (),
+    )
+    .await
+    .map_err(error)?;
+    tx.execute("CREATE TABLE records (session_id TEXT NOT NULL, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (session_id, sequence))", ()).await.map_err(error)?;
+    tx.execute("PRAGMA user_version = 1", ())
+        .await
+        .map_err(error)?;
+    tx.commit().await.map_err(error)
+}
