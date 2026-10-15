@@ -53,20 +53,43 @@ async fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    let model = match runtime.select_model(model.as_deref()) {
+    let directory = runtime.sessions_directory();
+    let saved = if let Some(id) = resume.as_deref() {
+        match artist_session::metadata(directory.as_deref(), id).await {
+            Ok(saved) => Some(saved),
+            Err(message) => {
+                emit(AgentEvent::Error { message });
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
+    if model.is_none() && saved.as_ref().is_some_and(|(_, settings)| settings.provider != provider) {
+        emit(AgentEvent::Error { message: "saved provider differs from Lua configuration; select a compatible model explicitly with --model".into() });
+        return ExitCode::FAILURE;
+    }
+    let requested_model = model.as_deref().or_else(|| saved.as_ref().map(|(_, settings)| settings.model.as_str()));
+    let selected_model = match runtime.select_model(requested_model) {
         Ok(model) => model,
         Err(message) => {
             emit(AgentEvent::Error { message });
             return ExitCode::FAILURE;
         }
     };
+    let inherited_reasoning = if model.is_none() {
+        saved.as_ref().and_then(|(_, settings)| settings.reasoning.clone())
+    } else {
+        None
+    };
+    let model = selected_model;
     let Some(info) = registry.into_iter().find(|info| info.id == model) else {
         emit(AgentEvent::Error {
             message: format!("model {model} is not in the provider registry"),
         });
         return ExitCode::FAILURE;
     };
-    let level = reasoning.or(info.default_reasoning.clone());
+    let level = reasoning.or(inherited_reasoning).or(info.default_reasoning.clone());
     if let Some(level) = &level {
         if info
             .reasoning_levels
@@ -86,12 +109,39 @@ async fn main() -> ExitCode {
             .map(String::as_str)
             .unwrap_or(value)
     });
-    let cwd = env::current_dir().expect("current directory exists");
-    let mut conversation = Conversation::default();
-    if let Err(message) = runtime.configure_conversation(&mut conversation, &cwd, &model) {
+    let cwd = match env::current_dir().and_then(std::fs::canonicalize) {
+        Ok(cwd) => cwd,
+        Err(error) => {
+            emit(AgentEvent::Error { message: error.to_string() });
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Some((saved_cwd, _)) = &saved {
+        if *saved_cwd != cwd {
+            emit(AgentEvent::Error { message: format!("session belongs to {}; run artist from that directory", saved_cwd.display()) });
+            return ExitCode::FAILURE;
+        }
+    }
+    let mut initial = Conversation::default();
+    if resume.is_none() {
+        if let Err(message) = runtime.configure_conversation(&mut initial, &cwd, &model) {
+            emit(AgentEvent::Error { message });
+            return ExitCode::FAILURE;
+        }
+    }
+    let settings = artist_session::Settings { provider: provider.clone(), model: model.clone(), reasoning: level.clone() };
+    let mut session = match artist_session::Session::open(directory.as_deref(), resume.as_deref(), &cwd, settings.clone(), initial).await {
+        Ok(session) => session,
+        Err(message) => {
+            emit(AgentEvent::Error { message });
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(message) = session.set_settings(settings).await {
         emit(AgentEvent::Error { message });
         return ExitCode::FAILURE;
     }
+    let mut conversation = std::mem::take(&mut session.conversation);
     emit(AgentEvent::ModelInfo {
         provider,
         model: model.clone(),
@@ -124,6 +174,7 @@ async fn main() -> ExitCode {
                 info.context_window,
                 &cwd,
                 &cancellation,
+                Some(&session),
                 emit_batch,
             )
             .await;

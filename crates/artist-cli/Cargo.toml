@@ -7,5 +7,6 @@ edition = "2024"
 artist-acp = { path = "../artist-acp" }
 artist-core = { path = "../artist-core" }
 artist-lua = { path = "../artist-lua" }
+artist-session = { path = "../artist-session" }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt", "signal"] }
