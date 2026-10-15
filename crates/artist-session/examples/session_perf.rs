@@ -6,6 +6,8 @@ mod concurrency;
 mod heartbeat;
 #[path = "session_perf/metrics.rs"]
 mod metrics;
+#[path = "session_perf/payloads.rs"]
+mod payloads;
 #[path = "session_perf/reads.rs"]
 mod reads;
 #[path = "session_perf/scaling.rs"]
@@ -85,6 +87,7 @@ async fn run() -> Result<()> {
     {
         scaling::history(&root, count).await?;
     }
+    payloads::run(&root).await?;
     scaling::listing(&root).await?;
     concurrency::run(&root).await?;
     println!(
