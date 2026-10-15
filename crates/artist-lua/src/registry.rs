@@ -57,6 +57,7 @@ pub struct RegisteredProvider {
 
 #[derive(Default)]
 pub struct Registry {
+    pub sessions_directory: Option<std::path::PathBuf>,
     pub tools: Vec<RegisteredTool>,
     pub provider: Option<RegisteredProvider>,
     pub selector: Option<Function>,

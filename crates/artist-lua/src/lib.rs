@@ -9,6 +9,7 @@ pub mod model_info;
 mod prompt;
 mod provider_config;
 mod registry;
+mod sessions;
 mod summary_response;
 mod tools;
 
@@ -51,6 +52,7 @@ impl Runtime {
         let registry = Rc::new(RefCell::new(Registry::default()));
         registry::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
         prompt::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
+        sessions::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
         compaction::install(&lua, Rc::clone(&registry)).map_err(|e| e.to_string())?;
         compaction_summary::install(&lua, Rc::clone(&registry), client.clone())
             .map_err(|e| e.to_string())?;
@@ -71,6 +73,10 @@ impl Runtime {
             registry,
             client,
         })
+    }
+
+    pub fn sessions_directory(&self) -> Option<std::path::PathBuf> {
+        self.registry.borrow().sessions_directory.clone()
     }
 
     pub fn has_model(&self) -> bool {
@@ -139,6 +145,7 @@ impl Runtime {
         context_window: Option<u64>,
         cwd: &Path,
         cancellation: &CancellationToken,
+        journal: Option<&dyn artist_core::journal::Journal>,
         mut emit: impl FnMut(Vec<AgentEvent>),
     ) -> Result<TurnOutcome, String> {
         let provider = self.registry.borrow().provider.clone();
@@ -174,6 +181,7 @@ impl Runtime {
             20,
             context_window,
             cancellation,
+            journal,
             |history| {
                 let registry = self.registry.borrow();
                 let selection = if let Some(selector) = &registry.selector {
