@@ -6,6 +6,7 @@ use agent_client_protocol::{
     Agent, AgentSideConnection, AuthenticateRequest, AuthenticateResponse, CancelNotification,
     ContentBlock, Error, Implementation, InitializeRequest, InitializeResponse, NewSessionRequest,
     NewSessionResponse, PromptRequest, PromptResponse, ProtocolVersion, Result,
+    AgentCapabilities, Client, LoadSessionRequest, LoadSessionResponse, SessionNotification,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -58,8 +59,8 @@ impl Agent for ArtistAgent {
         }
         self.initialized
             .set(args.protocol_version == ProtocolVersion::V1);
-        // Default capabilities: text/resource links, no persistence, MCP, or rich media.
         Ok(InitializeResponse::new(ProtocolVersion::V1)
+            .agent_capabilities(AgentCapabilities::new().load_session(true))
             .agent_info(Implementation::new("artist", env!("CARGO_PKG_VERSION"))))
     }
 
@@ -81,6 +82,29 @@ impl Agent for ArtistAgent {
             .borrow_mut()
             .insert(id.clone(), Rc::new(session));
         Ok(NewSessionResponse::new(id))
+    }
+
+    async fn load_session(&self, args: LoadSessionRequest) -> Result<LoadSessionResponse> {
+        if !self.initialized.get() {
+            return Err(invalid("initialize with ACP v1 before loading sessions"));
+        }
+        if !args.mcp_servers.is_empty() {
+            return Err(invalid("MCP servers are not supported"));
+        }
+        let id = args.session_id.0.to_string();
+        if self.sessions.borrow().contains_key(&id) {
+            return Err(invalid("session is already loaded"));
+        }
+        let session = Session::new(&self.options, args.cwd, Some(&id)).await?;
+        let connection = self.connection.borrow().clone()
+            .ok_or_else(|| internal("client disconnected"))?;
+        for entry in session.store.transcript().await.map_err(internal)? {
+            for update in crate::replay::updates(&entry) {
+                connection.session_notification(SessionNotification::new(args.session_id.clone(), update)).await?;
+            }
+        }
+        self.sessions.borrow_mut().insert(id, Rc::new(session));
+        Ok(LoadSessionResponse::new())
     }
 
     async fn prompt(&self, args: PromptRequest) -> Result<PromptResponse> {

@@ -1,6 +1,7 @@
 //! Client-independent ACP v1 frontend over JSON-RPC stdio.
 mod agent;
 mod events;
+mod replay;
 mod session;
 
 use agent::ArtistAgent;
