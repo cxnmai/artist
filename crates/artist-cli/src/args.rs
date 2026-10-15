@@ -34,7 +34,17 @@ pub fn parse() -> Result<Option<Options>, String> {
         ) {
             let value = args
                 .next()
-                .filter(|value| !value.is_empty() && !value.starts_with('-'))
+                .filter(|value| {
+                    !value.is_empty()
+                        && if arg == "-p" {
+                            !matches!(
+                                value.as_str(),
+                                "-p" | "-r" | "--config" | "--model" | "--reasoning"
+                            )
+                        } else {
+                            !value.starts_with('-')
+                        }
+                })
                 .ok_or_else(|| format!("{arg} requires a value\n{USAGE}"))?;
             accepting_prompts = arg == "-p";
             match arg.as_str() {
