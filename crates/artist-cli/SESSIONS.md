@@ -1,0 +1,87 @@
+# Durable sessions
+
+Every CLI invocation with prompts creates a new session unless `-r` selects one:
+
+```sh
+artist -p "Investigate this project" --config /path/to/config.lua
+artist -p "Continue the investigation" -r <session-id> --config /path/to/config.lua
+```
+
+Multiple prompts in one invocation share the session. Normal CLI output remains
+frontend-safe NDJSON; session IDs are not printed. Session discovery is available
+through the `artist-session` metadata/list API and the local database, not an
+implicit "continue latest" behavior.
+
+## Location
+
+The embedded native Turso engine stores sessions locally; no cloud service or
+credentials are required. The shared database lives at `<directory>/sessions.db`.
+Defaults:
+
+- Linux: `$XDG_DATA_HOME/artist/sessions`, or `~/.local/share/artist/sessions`.
+- macOS: `~/Library/Application Support/artist/sessions`.
+- Windows: `%LOCALAPPDATA%\artist\sessions`.
+
+Override the directory in trusted Lua configuration:
+
+```lua
+artist.sessions({ directory = "/absolute/path/to/sessions" })
+```
+
+This configuration is shared by CLI and ACP. Moving to a different storage root
+changes which sessions can be discovered/resumed. Session storage can contain
+sensitive prompts, tool output, and opaque model replay data. Unix directories and
+files are restricted to the current user. This is not encryption at rest.
+
+## History and context
+
+Ordered, versioned records are authoritative. They contain the initial cwd,
+settings and system prompt, canonical messages, settings changes, usage anchors,
+compaction checkpoints, and terminal turn outcomes. Records have stable sequence
+IDs within a session. Metadata contains creation and last-activity timestamps for
+directory-scoped session listings; it is updated in the same transactions as
+history. Timestamps use Unix epoch milliseconds.
+
+The transcript consists of original messages and tool results. A compaction
+record stores the replacement context projection and its summary at a particular
+history boundary. It does not delete or overwrite earlier messages. Continuation
+replays checkpoints and subsequent records; transcript display still sees all
+original messages. Frontends must use safe display projections, not expose opaque
+provider replay data.
+
+## Continuation
+
+Resume restores the recorded canonical cwd, system prompt, model and reasoning.
+Run from that same directory; missing/mismatched directories fail rather than
+silently redirecting tools. Current Lua configuration supplies credentials, tools,
+and runtime policy; its system-prompt callbacks do not overwrite a resumed prompt.
+
+`--model` and `--reasoning` explicitly override saved settings. An explicit model
+selection uses that model's default reasoning unless reasoning is also specified.
+Switching provider/model preserves original history but removes incompatible
+thinking/native replay blocks from the model-context projection and clears its
+usage estimate. A saved model unavailable in current configuration is an error;
+Artist does not silently substitute another model.
+
+ACP `session/new` creates a durable session; `session/load` restores one and sends
+the original frontend-safe transcript before replying. Both frontends use the
+same store and engine persistence boundaries.
+
+## Durability
+
+Token deltas are streamed to the frontend and accumulated in memory, not written
+to disk. A user message is committed before model work; completed assistant
+responses and their usage anchors are committed together before tool execution;
+each tool result is committed before proceeding. Compaction/settings changes are
+committed before use. Terminal state is committed before reporting turn completion.
+Writes use transactions with FULL synchronous durability. Persistence failure
+stops further work instead of silently running with unsaved history.
+
+A crash during streaming can lose the incomplete response. On resume, unresolved
+tool calls receive durable error results saying their execution outcome is unknown.
+They are never rerun automatically: filesystem or external side effects may have
+happened before the crash. Writer locks are released by the OS after process death.
+
+Do not copy just the main database file while it is active: committed records may
+still be in its WAL. Close all users before copying the database and its companion
+files, or use an engine-supported consistent backup mechanism.

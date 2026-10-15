@@ -16,14 +16,17 @@ JSON-RPC on stdin/stdout. Diagnostics go to stderr. EOF stops the server.
 Each `session/new` creates independent conversation history using its supplied
 absolute `cwd`; Artist never changes the process working directory.
 
-Supported: `initialize`, `session/new`, `session/prompt`, `session/cancel`,
+Supported: `initialize`, `session/new`, `session/load`, `session/prompt`, `session/cancel`,
 streamed assistant text/thoughts, and tool-call status/input/output updates.
 Prompts accept text and resource links. Links are passed to the model as names/URIs
-for tool-based access, not fetched automatically. Sessions live only for the server process.
+for tool-based access, not fetched automatically. Sessions are persisted locally in
+Turso. `session/load` restores context and replays the original safe transcript.
+See [session storage and continuation](../artist-cli/SESSIONS.md) for locations,
+Lua overrides, durability, and model-switch behavior.
 Overlapping prompts within a session are rejected; separate sessions can run
 concurrently. Cancellation uses Artist's cooperative cancellation token.
 
-Not yet implemented: session persistence/loading, MCP servers, images/audio,
+Not yet implemented: MCP servers, images/audio,
 embedded context, protocol model/mode selection, or editor-hosted filesystem
 and terminal execution. Only implemented capabilities are advertised.
 
