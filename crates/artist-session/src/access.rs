@@ -30,6 +30,9 @@ impl Session {
         if writer.failed {
             return Err("session writer stopped after a persistence failure".into());
         }
+        // A dropped COMMIT future can already have made records durable. Poison
+        // before any await so cancellation also requires reopening and replaying.
+        writer.failed = true;
         let result = {
             match database::open(&writer.directory, false).await {
                 Ok(mut database) => {
@@ -38,8 +41,8 @@ impl Session {
                 Err(error) => Err(error),
             }
         };
-        if result.is_err() {
-            writer.failed = true;
+        if result.is_ok() {
+            writer.failed = false;
         }
         result
     }
