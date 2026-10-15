@@ -96,27 +96,46 @@ pub async fn run(root: &Path) -> Result<()> {
     assert!(
         matches!(&session.conversation.entries[2], ContextEntry::Assistant { blocks } if blocks.iter().any(|block| matches!(block, AssistantBlock::ProviderData { .. })))
     );
+    let suffix = ContextEntry::User {
+        text: "after checkpoint in batch".into(),
+    };
     session
-        .append(SessionRecord::Compaction {
-            context: Conversation {
-                system_prompt: initial.system_prompt.clone(),
-                entries: vec![ContextEntry::Summary {
-                    text: "second checkpoint".into(),
-                }],
-                last_usage: None,
+        .append_batch(vec![
+            SessionRecord::Compaction {
+                context: Conversation {
+                    system_prompt: initial.system_prompt.clone(),
+                    entries: vec![ContextEntry::Summary {
+                        text: "second checkpoint".into(),
+                    }],
+                    last_usage: None,
+                },
+                summary: "second checkpoint".into(),
+                removed_entries: 4,
             },
-            summary: "second checkpoint".into(),
-            removed_entries: 4,
-        })
+            SessionRecord::Message {
+                entry: suffix.clone(),
+            },
+            SessionRecord::Usage {
+                anchor: Some(UsageAnchor {
+                    entry_index: 1,
+                    tokens: 88,
+                }),
+            },
+        ])
         .await?;
     drop(session);
     let session = Session::open(Some(&directory), Some(&id), &cwd, settings(), initial).await?;
-    assert_eq!(session.conversation.entries.len(), 1);
+    assert_eq!(session.conversation.entries.len(), 2);
     assert_eq!(session.settings, switched);
-    assert!(session.conversation.last_usage.is_none());
+    assert_eq!(session.conversation.last_usage.as_ref().unwrap().tokens, 88);
+    let mut final_transcript = transcript;
+    final_transcript
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::to_value(suffix)?);
     assert_eq!(
         serde_json::to_value(session.transcript().await?)?,
-        transcript
+        final_transcript
     );
     println!(
         "{}",
