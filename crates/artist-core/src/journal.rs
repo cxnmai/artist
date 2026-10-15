@@ -7,7 +7,9 @@ use std::{future::Future, pin::Pin};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SessionRecord {
-    Message { entry: ContextEntry },
+    Message {
+        entry: ContextEntry,
+    },
     /// A context projection checkpoint. Original message records remain untouched.
     /// The storage sequence immediately preceding this record is its history boundary.
     Compaction {
@@ -15,8 +17,12 @@ pub enum SessionRecord {
         summary: String,
         removed_entries: usize,
     },
-    Usage { anchor: Option<UsageAnchor> },
-    Terminal { outcome: String },
+    Usage {
+        anchor: Option<UsageAnchor>,
+    },
+    Terminal {
+        outcome: String,
+    },
 }
 
 pub trait Journal {
@@ -40,7 +46,10 @@ pub trait Journal {
     }
 }
 
-pub async fn append_batch(journal: Option<&dyn Journal>, records: Vec<SessionRecord>) -> Result<(), String> {
+pub async fn append_batch(
+    journal: Option<&dyn Journal>,
+    records: Vec<SessionRecord>,
+) -> Result<(), String> {
     if let Some(journal) = journal {
         journal.append_batch(records).await?;
     }

@@ -96,7 +96,13 @@ pub async fn record_assistant(
             text: output.text,
             is_error: output.is_error,
         };
-        journal::append(journal, SessionRecord::Message { entry: result.clone() }).await?;
+        journal::append(
+            journal,
+            SessionRecord::Message {
+                entry: result.clone(),
+            },
+        )
+        .await?;
         conversation.entries.push(result);
         on_result(conversation.entries.last().expect("result appended"));
     }

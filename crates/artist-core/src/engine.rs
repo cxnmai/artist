@@ -133,7 +133,14 @@ pub async fn run_turn(
         Ok(TurnOutcome::Cancelled) => "cancelled",
         Err(_) => "error",
     };
-    if let Err(error) = journal::append(journal, SessionRecord::Terminal { outcome: status.into() }).await {
+    if let Err(error) = journal::append(
+        journal,
+        SessionRecord::Terminal {
+            outcome: status.into(),
+        },
+    )
+    .await
+    {
         outcome = Err(error);
     }
     let terminal = match &outcome {
@@ -160,8 +167,16 @@ async fn run_turn_inner(
     prepare: &mut impl FnMut(&Conversation) -> Result<TurnRequest, String>,
     emit: &mut impl FnMut(Vec<AgentEvent>),
 ) -> Result<TurnOutcome, String> {
-    let entry = ContextEntry::User { text: prompt.clone() };
-    journal::append(journal, SessionRecord::Message { entry: entry.clone() }).await?;
+    let entry = ContextEntry::User {
+        text: prompt.clone(),
+    };
+    journal::append(
+        journal,
+        SessionRecord::Message {
+            entry: entry.clone(),
+        },
+    )
+    .await?;
     conversation.entries.push(entry);
     emit(vec![AgentEvent::User { text: prompt }]);
     if let Some(usage) = context_window.and_then(|window| conversation.context_usage(window)) {
@@ -184,11 +199,15 @@ async fn run_turn_inner(
             result.validate(conversation)?;
             let mut replacement = result.context;
             replacement.last_usage = None;
-            journal::append(journal, SessionRecord::Compaction {
-                context: replacement.clone(),
-                summary: result.summary.clone(),
-                removed_entries: result.removed_entries,
-            }).await?;
+            journal::append(
+                journal,
+                SessionRecord::Compaction {
+                    context: replacement.clone(),
+                    summary: result.summary.clone(),
+                    removed_entries: result.removed_entries,
+                },
+            )
+            .await?;
             *conversation = replacement;
             emit(vec![AgentEvent::Compacted {
                 summary: result.summary,
@@ -258,12 +277,17 @@ async fn run_turn_inner(
         let assistant_index = conversation.entries.len();
         let anchor = usage.map(|(input, output, total)| UsageAnchor {
             entry_index: assistant_index,
-            tokens: total.filter(|tokens| *tokens > 0)
+            tokens: total
+                .filter(|tokens| *tokens > 0)
                 .unwrap_or_else(|| input.saturating_add(output)),
         });
-        let mut records = vec![SessionRecord::Message { entry: assistant.clone() }];
+        let mut records = vec![SessionRecord::Message {
+            entry: assistant.clone(),
+        }];
         if let Some(anchor) = &anchor {
-            records.push(SessionRecord::Usage { anchor: Some(anchor.clone()) });
+            records.push(SessionRecord::Usage {
+                anchor: Some(anchor.clone()),
+            });
         }
         journal::append_batch(journal, records).await?;
         if anchor.is_some() {
