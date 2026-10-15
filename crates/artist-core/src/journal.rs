@@ -25,6 +25,26 @@ pub trait Journal {
         &'a self,
         record: SessionRecord,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + 'a>>;
+
+    /// Stores supporting transactions should override this to commit the batch atomically.
+    fn append_batch<'a>(
+        &'a self,
+        records: Vec<SessionRecord>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + 'a>> {
+        Box::pin(async move {
+            for record in records {
+                self.append(record).await?;
+            }
+            Ok(())
+        })
+    }
+}
+
+pub async fn append_batch(journal: Option<&dyn Journal>, records: Vec<SessionRecord>) -> Result<(), String> {
+    if let Some(journal) = journal {
+        journal.append_batch(records).await?;
+    }
+    Ok(())
 }
 
 pub async fn append(journal: Option<&dyn Journal>, record: SessionRecord) -> Result<(), String> {

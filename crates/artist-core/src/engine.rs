@@ -255,16 +255,19 @@ async fn run_turn_inner(
             return Ok(TurnOutcome::Cancelled);
         }
         let has_calls = matches!(&assistant, ContextEntry::Assistant { blocks } if blocks.iter().any(|block| matches!(block, AssistantBlock::ToolCall { .. })));
-        journal::append(journal, SessionRecord::Message { entry: assistant.clone() }).await?;
         let assistant_index = conversation.entries.len();
-        if let Some((input, output, total)) = usage {
-            let anchor = UsageAnchor {
-                entry_index: assistant_index,
-                tokens: total.filter(|tokens| *tokens > 0)
-                    .unwrap_or_else(|| input.saturating_add(output)),
-            };
-            journal::append(journal, SessionRecord::Usage { anchor: Some(anchor.clone()) }).await?;
-            conversation.last_usage = Some(anchor);
+        let anchor = usage.map(|(input, output, total)| UsageAnchor {
+            entry_index: assistant_index,
+            tokens: total.filter(|tokens| *tokens > 0)
+                .unwrap_or_else(|| input.saturating_add(output)),
+        });
+        let mut records = vec![SessionRecord::Message { entry: assistant.clone() }];
+        if let Some(anchor) = &anchor {
+            records.push(SessionRecord::Usage { anchor: Some(anchor.clone()) });
+        }
+        journal::append_batch(journal, records).await?;
+        if anchor.is_some() {
+            conversation.last_usage = anchor;
         }
         emit(vec![AgentEvent::Assistant {
             entry: DisplayEntry::from(&assistant),
