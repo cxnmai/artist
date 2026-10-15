@@ -24,6 +24,7 @@ pub async fn history(root: &Path, count: usize) -> Result<()> {
     })
     .await?;
     reads::store(&directory, &session, count).await?;
+    reads::jsonl(&directory, count, &session.transcript().await?)?;
     drop(session);
     metrics::measure("resume", count, 5, || async {
         open(&directory, Some(&id), 0).await
@@ -49,7 +50,6 @@ pub async fn history(root: &Path, count: usize) -> Result<()> {
         Ok(session)
     })
     .await?;
-    reads::jsonl(&directory, count)?;
     metrics::file_sizes(&directory, count)?;
     Ok(())
 }

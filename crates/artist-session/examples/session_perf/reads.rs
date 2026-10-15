@@ -1,4 +1,4 @@
-use crate::{Result, initial, metrics};
+use crate::{Result, metrics};
 use artist_core::context::ContextEntry;
 use artist_session::Session;
 use std::{
@@ -8,11 +8,11 @@ use std::{
     time::Instant,
 };
 
-pub fn jsonl(directory: &Path, count: usize) -> Result<()> {
+pub fn jsonl(directory: &Path, count: usize, entries: &[ContextEntry]) -> Result<()> {
     let path = directory.join("comparison.jsonl");
     let mut writer = BufWriter::new(File::create(&path)?);
-    for entry in initial(count).entries {
-        serde_json::to_writer(&mut writer, &entry)?;
+    for entry in entries {
+        serde_json::to_writer(&mut writer, entry)?;
         writer.write_all(b"\n")?;
     }
     writer.flush()?;

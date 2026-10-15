@@ -74,7 +74,13 @@ async fn run() -> Result<()> {
         }})
     );
     let start = Instant::now();
-    for count in [100, 1000, 10_000] {
+    let max_history: usize = std::env::var("ARTIST_PERF_MAX_HISTORY")
+        .unwrap_or_else(|_| "100000".into())
+        .parse()?;
+    for count in [100, 1000, 10_000, 100_000]
+        .into_iter()
+        .filter(|count| *count <= max_history)
+    {
         scaling::history(&root, count).await?;
     }
     scaling::listing(&root).await?;
