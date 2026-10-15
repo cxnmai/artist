@@ -6,5 +6,6 @@ pub mod context_usage;
 pub mod display;
 pub mod engine;
 pub mod event;
+pub mod journal;
 pub mod response;
 pub mod tools;
