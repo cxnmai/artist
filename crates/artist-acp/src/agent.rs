@@ -3,10 +3,11 @@ use crate::{
     session::{Session, internal, invalid},
 };
 use agent_client_protocol::{
-    Agent, AgentSideConnection, AuthenticateRequest, AuthenticateResponse, CancelNotification,
-    ContentBlock, Error, Implementation, InitializeRequest, InitializeResponse, NewSessionRequest,
+    Agent, AgentCapabilities, AgentSideConnection, AuthenticateRequest, AuthenticateResponse,
+    CancelNotification, Client, ContentBlock, Error, Implementation, InitializeRequest,
+    InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
     NewSessionResponse, PromptRequest, PromptResponse, ProtocolVersion, Result,
-    AgentCapabilities, Client, LoadSessionRequest, LoadSessionResponse, SessionNotification,
+    SessionNotification,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -96,11 +97,16 @@ impl Agent for ArtistAgent {
             return Err(invalid("session is already loaded"));
         }
         let session = Session::new(&self.options, args.cwd, Some(&id)).await?;
-        let connection = self.connection.borrow().clone()
+        let connection = self
+            .connection
+            .borrow()
+            .clone()
             .ok_or_else(|| internal("client disconnected"))?;
         for entry in session.store.transcript().await.map_err(internal)? {
             for update in crate::replay::updates(&entry) {
-                connection.session_notification(SessionNotification::new(args.session_id.clone(), update)).await?;
+                connection
+                    .session_notification(SessionNotification::new(args.session_id.clone(), update))
+                    .await?;
             }
         }
         self.sessions.borrow_mut().insert(id, Rc::new(session));

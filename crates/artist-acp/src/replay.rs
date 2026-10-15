@@ -27,7 +27,10 @@ pub fn updates(entry: &ContextEntry) -> Vec<SessionUpdate> {
                         event: DisplayModelEvent::ThinkingDelta { text: text.clone() },
                     }),
                     DisplayBlock::ToolCall { id, name, .. } => events.push(AgentEvent::Model {
-                        event: DisplayModelEvent::ToolCallStart { id: id.clone(), name: name.clone() },
+                        event: DisplayModelEvent::ToolCallStart {
+                            id: id.clone(),
+                            name: name.clone(),
+                        },
                     }),
                 }
             }
