@@ -64,7 +64,7 @@ artist.provider({
   discover = { endpoint = "https://opencode.ai/zen/go/v1/models" },
   models = models,
   model_info = model_info,
-  default_model = "deepseek-v4-pro",
+  default_model = "gpt-6-luna",
   adapter = "chat_completions",
   stream = true,
   adapters = {
